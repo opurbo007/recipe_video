@@ -1,0 +1,329 @@
+{
+  "categories": [
+    {
+      "id": "breakfast",
+      "name": "Breakfast",
+      "emoji": "🍳",
+      "description": "Start your day right",
+      "image": "https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=600&q=80"
+    },
+    {
+      "id": "lunch",
+      "name": "Lunch",
+      "emoji": "🥗",
+      "description": "Midday fuel",
+      "image": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&q=80"
+    },
+    {
+      "id": "dinner",
+      "name": "Dinner",
+      "emoji": "🍝",
+      "description": "Evening favourites",
+      "image": "https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=600&q=80"
+    },
+    {
+      "id": "desserts",
+      "name": "Desserts",
+      "emoji": "🍰",
+      "description": "Sweet endings",
+      "image": "https://images.unsplash.com/photo-1488477181946-6428a0291777?w=600&q=80"
+    },
+    {
+      "id": "drinks",
+      "name": "Drinks",
+      "emoji": "🍹",
+      "description": "Refreshing sips",
+      "image": "https://images.unsplash.com/photo-1544145945-f90425340c7e?w=600&q=80"
+    },
+    {
+      "id": "snacks",
+      "name": "Snacks",
+      "emoji": "🥨",
+      "description": "Quick bites",
+      "image": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80"
+    }
+  ],
+  "recipes": [
+    {
+      "id": "avocado-toast",
+      "categoryId": "breakfast",
+      "title": "Avocado Toast with Poached Egg",
+      "image": "https://images.unsplash.com/photo-1541519227354-08fa5d50c820?w=800&q=80",
+      "time": "15 min",
+      "servings": 2,
+      "difficulty": "Easy",
+      "ingredients": [
+        "2 slices sourdough bread",
+        "1 ripe avocado",
+        "2 eggs",
+        "1 tbsp white vinegar",
+        "1/2 lemon, juiced",
+        "Red chilli flakes, to taste",
+        "Sea salt & black pepper",
+        "Fresh micro herbs (optional)"
+      ],
+      "instructions": [
+        "Toast the sourdough slices until golden and crispy on both sides.",
+        "Halve the avocado, remove the pit, and scoop the flesh into a bowl. Add lemon juice, salt, and pepper, then mash to your preferred consistency.",
+        "Bring a pot of water to a gentle simmer. Add the white vinegar. Crack each egg into a small cup.",
+        "Create a gentle swirl in the water with a spoon, then slide in the eggs one at a time. Poach for 3 minutes for a runny yolk.",
+        "Spread the mashed avocado generously over each toast slice.",
+        "Lift the poached eggs with a slotted spoon, pat dry, and place on top of the avocado.",
+        "Season with chilli flakes, salt, and pepper. Garnish with micro herbs if using. Serve immediately."
+      ]
+    },
+    {
+      "id": "banana-pancakes",
+      "categoryId": "breakfast",
+      "title": "Fluffy Banana Pancakes",
+      "image": "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=800&q=80",
+      "time": "20 min",
+      "servings": 4,
+      "difficulty": "Easy",
+      "ingredients": [
+        "2 ripe bananas",
+        "2 eggs",
+        "1 cup all-purpose flour",
+        "1 cup buttermilk",
+        "1 tsp baking powder",
+        "1/2 tsp baking soda",
+        "1 tbsp sugar",
+        "Pinch of salt",
+        "Butter for cooking",
+        "Maple syrup to serve"
+      ],
+      "instructions": [
+        "Mash the bananas in a large bowl until smooth.",
+        "Whisk in the eggs and buttermilk until well combined.",
+        "Sift in the flour, baking powder, baking soda, sugar, and salt. Fold gently until just combined — a few lumps are fine.",
+        "Heat a non-stick pan over medium heat and add a small knob of butter.",
+        "Pour about 1/4 cup of batter per pancake. Cook until bubbles form on the surface and edges look set, about 2–3 minutes.",
+        "Flip and cook for another 1–2 minutes until golden.",
+        "Stack and serve warm with maple syrup and sliced bananas."
+      ]
+    },
+    {
+      "id": "greek-salad",
+      "categoryId": "lunch",
+      "title": "Classic Greek Salad",
+      "image": "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=800&q=80",
+      "time": "10 min",
+      "servings": 2,
+      "difficulty": "Easy",
+      "ingredients": [
+        "3 ripe tomatoes, cut into wedges",
+        "1 cucumber, sliced",
+        "1 red onion, thinly sliced",
+        "100g kalamata olives",
+        "200g feta cheese, cubed",
+        "1 green bell pepper, sliced",
+        "3 tbsp extra-virgin olive oil",
+        "1 tbsp red wine vinegar",
+        "1 tsp dried oregano",
+        "Salt & pepper to taste"
+      ],
+      "instructions": [
+        "Combine the tomatoes, cucumber, red onion, bell pepper, and olives in a large bowl.",
+        "Whisk together the olive oil, red wine vinegar, oregano, salt, and pepper to make the dressing.",
+        "Pour the dressing over the salad and toss gently to coat all the vegetables.",
+        "Top with the feta cheese cubes — don't crumble them, leave them in chunks.",
+        "Finish with an extra drizzle of olive oil and a pinch of dried oregano.",
+        "Serve immediately with crusty bread."
+      ]
+    },
+    {
+      "id": "chicken-wrap",
+      "categoryId": "lunch",
+      "title": "Grilled Chicken Caesar Wrap",
+      "image": "https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=800&q=80",
+      "time": "25 min",
+      "servings": 2,
+      "difficulty": "Medium",
+      "ingredients": [
+        "2 chicken breasts",
+        "2 large flour tortillas",
+        "2 cups romaine lettuce, chopped",
+        "1/4 cup Caesar dressing",
+        "1/4 cup grated Parmesan",
+        "1/2 tsp garlic powder",
+        "1/2 tsp paprika",
+        "Salt & pepper",
+        "1 tbsp olive oil"
+      ],
+      "instructions": [
+        "Season chicken breasts with garlic powder, paprika, salt, pepper, and olive oil.",
+        "Grill the chicken on a hot griddle pan for 6–7 minutes per side until cooked through. Let rest for 5 minutes.",
+        "Slice the chicken into thin strips.",
+        "Toss romaine lettuce with Caesar dressing and Parmesan.",
+        "Warm the tortillas in a dry pan for 30 seconds each side.",
+        "Lay the lettuce mix in the centre of each tortilla, top with chicken strips.",
+        "Roll tightly, folding in the sides, and slice diagonally. Serve immediately."
+      ]
+    },
+    {
+      "id": "spaghetti-carbonara",
+      "categoryId": "dinner",
+      "title": "Spaghetti Carbonara",
+      "image": "https://images.unsplash.com/photo-1612874742237-6526221588e3?w=800&q=80",
+      "time": "30 min",
+      "servings": 4,
+      "difficulty": "Medium",
+      "ingredients": [
+        "400g spaghetti",
+        "200g guanciale or pancetta",
+        "4 large eggs",
+        "100g Pecorino Romano, grated",
+        "50g Parmesan, grated",
+        "2 cloves garlic",
+        "Black pepper (generous amount)",
+        "Salt for pasta water"
+      ],
+      "instructions": [
+        "Bring a large pot of well-salted water to a boil. Cook spaghetti until al dente.",
+        "Meanwhile, fry the guanciale in a large pan over medium heat until crispy. Add garlic for the last minute, then discard the garlic.",
+        "In a bowl, whisk together eggs, Pecorino, and Parmesan. Season generously with black pepper.",
+        "Reserve 1 cup of pasta cooking water, then drain the spaghetti.",
+        "Remove the pan with guanciale from heat. Add the hot spaghetti and toss to coat in the fat.",
+        "Let the pan cool slightly, then pour over the egg mixture. Toss vigorously, adding pasta water a splash at a time to create a creamy, glossy sauce.",
+        "Serve immediately with extra cheese and a generous crack of black pepper."
+      ]
+    },
+    {
+      "id": "butter-chicken",
+      "categoryId": "dinner",
+      "title": "Butter Chicken",
+      "image": "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=800&q=80",
+      "time": "45 min",
+      "servings": 4,
+      "difficulty": "Medium",
+      "ingredients": [
+        "700g chicken thighs, cubed",
+        "1 cup plain yogurt",
+        "2 tsp garam masala",
+        "1 tsp turmeric",
+        "400g crushed tomatoes",
+        "1 cup heavy cream",
+        "2 tbsp butter",
+        "1 onion, finely chopped",
+        "4 garlic cloves, minced",
+        "1 tbsp fresh ginger, grated",
+        "1 tsp cumin",
+        "1 tsp coriander",
+        "Chilli powder to taste",
+        "Fresh coriander to garnish"
+      ],
+      "instructions": [
+        "Marinate chicken in yogurt, 1 tsp garam masala, and turmeric for at least 30 minutes.",
+        "Cook chicken in a hot pan until slightly charred. Set aside.",
+        "In the same pan, melt butter over medium heat. Sauté onion until golden, about 8 minutes.",
+        "Add garlic, ginger, cumin, coriander, and chilli powder. Cook for 2 minutes until fragrant.",
+        "Pour in crushed tomatoes and simmer for 10 minutes, stirring occasionally.",
+        "Blend the sauce until smooth. Return to pan and stir in cream and remaining garam masala.",
+        "Add the cooked chicken and simmer for 10 minutes. Adjust seasoning.",
+        "Garnish with fresh coriander and serve with naan or basmati rice."
+      ]
+    },
+    {
+      "id": "chocolate-lava-cake",
+      "categoryId": "desserts",
+      "title": "Chocolate Lava Cake",
+      "image": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&q=80",
+      "time": "25 min",
+      "servings": 4,
+      "difficulty": "Medium",
+      "ingredients": [
+        "200g dark chocolate (70%)",
+        "100g unsalted butter",
+        "3 eggs + 3 egg yolks",
+        "120g icing sugar",
+        "60g plain flour",
+        "Pinch of salt",
+        "Cocoa powder for dusting",
+        "Vanilla ice cream to serve"
+      ],
+      "instructions": [
+        "Preheat oven to 220°C / 425°F. Butter four ramekins and dust with cocoa powder.",
+        "Melt chocolate and butter together in a heatproof bowl over simmering water. Stir until smooth. Let cool slightly.",
+        "Whisk eggs, yolks, and icing sugar until pale and slightly thickened.",
+        "Fold the chocolate mixture into the egg mixture gently.",
+        "Sift in the flour and salt, and fold until just combined.",
+        "Divide batter evenly among the prepared ramekins. Chill for at least 15 minutes (or up to 24 hours).",
+        "Bake for exactly 12 minutes — the edges should be set but the centre still jiggly.",
+        "Invert onto plates immediately and serve with vanilla ice cream."
+      ]
+    },
+    {
+      "id": "mango-smoothie",
+      "categoryId": "drinks",
+      "title": "Tropical Mango Smoothie",
+      "image": "https://images.unsplash.com/photo-1623065422902-30a2d299bbe4?w=800&q=80",
+      "time": "5 min",
+      "servings": 2,
+      "difficulty": "Easy",
+      "ingredients": [
+        "2 ripe mangoes, peeled and cubed",
+        "1 cup coconut milk",
+        "1/2 cup Greek yogurt",
+        "1 tbsp honey",
+        "1/2 tsp fresh ginger, grated",
+        "Juice of 1 lime",
+        "Handful of ice cubes",
+        "Mint leaves to garnish"
+      ],
+      "instructions": [
+        "Add mango cubes to a blender along with the ice cubes.",
+        "Pour in the coconut milk and add the Greek yogurt.",
+        "Add honey, grated ginger, and lime juice.",
+        "Blend on high for 60 seconds until completely smooth and creamy.",
+        "Taste and adjust sweetness with more honey if needed.",
+        "Pour into chilled glasses and garnish with fresh mint leaves.",
+        "Serve immediately for best flavour."
+      ]
+    },
+    {
+      "id": "guacamole",
+      "categoryId": "snacks",
+      "title": "Fresh Guacamole & Chips",
+      "image": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?w=800&q=80",
+      "time": "10 min",
+      "servings": 4,
+      "difficulty": "Easy",
+      "ingredients": [
+        "3 ripe avocados",
+        "1 lime, juiced",
+        "1/2 tsp sea salt",
+        "1/2 red onion, finely diced",
+        "2 Roma tomatoes, seeded and diced",
+        "2 tbsp fresh cilantro, chopped",
+        "1 jalapeño, finely minced (seeds removed)",
+        "1 clove garlic, minced",
+        "Tortilla chips to serve"
+      ],
+      "instructions": [
+        "Halve and pit the avocados. Scoop the flesh into a bowl.",
+        "Add lime juice and salt. Mash with a fork to your desired consistency — chunky or smooth.",
+        "Fold in the red onion, tomatoes, cilantro, jalapeño, and garlic.",
+        "Taste and adjust seasoning — add more salt or lime as needed.",
+        "Cover with plastic wrap pressed directly onto the surface to prevent browning.",
+        "Serve immediately with tortilla chips, or refrigerate for up to 2 hours."
+      ]
+    }
+  ],
+  "sliderImages": [
+    {
+      "url": "https://images.unsplash.com/photo-1547592180-85f173990554?w=1400&q=80",
+      "title": "Cook With Passion",
+      "subtitle": "Discover recipes that inspire"
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1400&q=80",
+      "title": "Fresh Ingredients",
+      "subtitle": "Simple food, extraordinary taste"
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1400&q=80",
+      "title": "Cook Together",
+      "subtitle": "Share the joy of cooking with friends"
+    }
+  ]
+}
