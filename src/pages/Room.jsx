@@ -143,8 +143,9 @@ export default function Room() {
   const [mediaWarning, setMediaWarning] = useState('');
   const [micOn,        setMicOn]        = useState(true);
   const [camOn,        setCamOn]        = useState(true);
-  // Tracks whether the friend has turned their camera off
+  // Tracks whether the friend has turned their camera or mic off
   const [remoteCamOff, setRemoteCamOff] = useState(false);
+  const [remoteMicOff, setRemoteMicOff] = useState(false);
 
   const recipeId   = searchParams.get('recipe');
   const recipe     = recipeId ? data.recipes.find(r => r.id === recipeId) : null;
@@ -192,8 +193,14 @@ export default function Room() {
         remoteStream.getVideoTracks().forEach(track => {
           track.onmute   = () => setRemoteCamOff(true);
           track.onunmute = () => setRemoteCamOff(false);
-          // Also check initial state — track may already be muted when received
           if (track.muted) setRemoteCamOff(true);
+        });
+
+        // Listen for the friend toggling their mic on/off
+        remoteStream.getAudioTracks().forEach(track => {
+          track.onmute   = () => setRemoteMicOff(true);
+          track.onunmute = () => setRemoteMicOff(false);
+          if (track.muted) setRemoteMicOff(true);
         });
 
         setConnected(true);
@@ -340,6 +347,7 @@ export default function Room() {
                 className="room-video-el"
                 style={{ display: connected ? 'block' : 'none' }}
               />
+
               {/* Not yet connected */}
               {!connected && (
                 <div className="video-placeholder">
@@ -349,13 +357,31 @@ export default function Room() {
                   </div>
                 </div>
               )}
-              {/* Friend's camera is off */}
+
+              {/* Friend's camera is off — dark overlay */}
               {connected && remoteCamOff && (
                 <div className="video-cam-off-overlay">
-                  <div className="video-placeholder__icon">🚫</div>
+                  <div className="video-placeholder__icon">📷</div>
                   <div className="video-placeholder__text">Camera off</div>
                 </div>
               )}
+
+              {/* Status badges — mic and cam indicators */}
+              {connected && (
+                <div className="remote-status-badges">
+                  {remoteMicOff && (
+                    <span className="remote-badge remote-badge--muted" title="Friend muted">
+                      🔇
+                    </span>
+                  )}
+                  {remoteCamOff && (
+                    <span className="remote-badge remote-badge--cam" title="Friend camera off">
+                      📷
+                    </span>
+                  )}
+                </div>
+              )}
+
               {connected && <span className="video-container__label">Friend 🧑‍🍳</span>}
             </div>
           </div>
