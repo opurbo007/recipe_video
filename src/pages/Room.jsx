@@ -143,6 +143,8 @@ export default function Room() {
   const [mediaWarning, setMediaWarning] = useState('');
   const [micOn,        setMicOn]        = useState(true);
   const [camOn,        setCamOn]        = useState(true);
+  // Mobile browsers block autoplay with audio — track if we need user tap to unmute
+  const [audioMuted,   setAudioMuted]   = useState(false);
 
   const recipeId   = searchParams.get('recipe');
   const recipe     = recipeId ? data.recipes.find(r => r.id === recipeId) : null;
@@ -172,9 +174,7 @@ export default function Room() {
       const safeStream = stream || new MediaStream();
 
       const onRemoteStream = (remoteStream) => {
-        // PeerJS bug: it can fire 'stream' with the LOCAL stream as an echo.
-        // Guard: reject if it's the same stream object, or if every track ID
-        // matches a local track (meaning it's our own feed coming back).
+        // Guard against PeerJS echo — reject if it matches our own local stream
         const localStream = localStreamRef.current;
         if (localStream) {
           if (remoteStream.id === localStream.id) return;
@@ -183,10 +183,17 @@ export default function Room() {
           if (allLocal && remoteStream.getTracks().length > 0) return;
         }
 
-        // Remote <video> is always in DOM — set srcObject directly, no useEffect needed
         remoteStreamRef.current = remoteStream;
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStream;
+
+          // Explicitly call play() — required on mobile (iOS Safari, Android Chrome)
+          // after setting srcObject dynamically. autoPlay alone isn't enough.
+          remoteVideoRef.current.play().catch(() => {
+            // Autoplay with audio was blocked by the browser (mobile policy).
+            // Show a "Tap to hear audio" button so the user can unblock it.
+            setAudioMuted(true);
+          });
         }
         setConnected(true);
         setWaiting(false);
@@ -264,6 +271,13 @@ export default function Room() {
     setCamOn(next);
   };
 
+  const tapToUnmute = () => {
+    const vid = remoteVideoRef.current;
+    if (!vid) return;
+    vid.muted = false;
+    vid.play().then(() => setAudioMuted(false)).catch(() => {});
+  };
+
   const endCall = () => {
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
     if (peerRef.current)        peerRef.current.destroy();
@@ -327,7 +341,9 @@ export default function Room() {
             <div className="video-container">
               <video
                 ref={remoteVideoRef}
-                autoPlay playsInline
+                autoPlay
+                playsInline
+                muted={false}
                 className="room-video-el"
                 style={{ display: connected ? 'block' : 'none' }}
               />
@@ -337,6 +353,13 @@ export default function Room() {
                   <div className="video-placeholder__text">
                     {waiting ? 'Waiting for friend…' : 'Connecting…'}
                   </div>
+                </div>
+              )}
+              {/* Mobile autoplay tap-to-unmute overlay */}
+              {connected && audioMuted && (
+                <div className="video-unmute-overlay" onClick={tapToUnmute}>
+                  <div className="video-unmute-icon">🔇</div>
+                  <div className="video-unmute-text">Tap to hear audio</div>
                 </div>
               )}
               {connected && <span className="video-container__label">Friend 🧑‍🍳</span>}

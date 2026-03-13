@@ -139,4 +139,3 @@ All images use Unsplash URLs — replace with your own hosted images for product
 ---
 
 *Built with React + Vite + PeerJS. No backend. No database. No auth.*
-# recipe_video

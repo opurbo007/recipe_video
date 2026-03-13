@@ -826,6 +826,44 @@ button { cursor: pointer; border: none; outline: none; font-family: var(--font-b
 .video-placeholder__icon { font-size: 2.4rem; }
 .video-placeholder__text { font-size: 0.8rem; }
 
+/* Mobile tap-to-unmute overlay */
+.video-unmute-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  z-index: 2;
+  transition: background var(--transition);
+}
+
+.video-unmute-overlay:hover {
+  background: rgba(0,0,0,0.45);
+}
+
+.video-unmute-icon {
+  font-size: 2.4rem;
+  animation: tapPulse 1.5s ease infinite;
+}
+
+.video-unmute-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: white;
+  background: var(--pink);
+  padding: 7px 18px;
+  border-radius: 20px;
+}
+
+@keyframes tapPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
 /* Controls row */
 .room-controls {
   display: flex;
