@@ -5,42 +5,42 @@
       "name": "Breakfast",
       "emoji": "🍳",
       "description": "Start your day right",
-      "image": "https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=600&q=80"
+      "image": "/images/cat-breakfast.jpg"
     },
     {
       "id": "lunch",
       "name": "Lunch",
       "emoji": "🥗",
       "description": "Midday fuel",
-      "image": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&q=80"
+      "image": "/images/cat-lunch.jpg"
     },
     {
       "id": "dinner",
       "name": "Dinner",
       "emoji": "🍝",
       "description": "Evening favourites",
-      "image": "https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=600&q=80"
+      "image": "/images/cat-dinner.jpg"
     },
     {
       "id": "desserts",
       "name": "Desserts",
       "emoji": "🍰",
       "description": "Sweet endings",
-      "image": "https://images.unsplash.com/photo-1488477181946-6428a0291777?w=600&q=80"
+      "image": "/images/cat-desserts.jpg"
     },
     {
       "id": "drinks",
       "name": "Drinks",
       "emoji": "🍹",
       "description": "Refreshing sips",
-      "image": "https://images.unsplash.com/photo-1544145945-f90425340c7e?w=600&q=80"
+      "image": "/images/cat-drinks.jpg"
     },
     {
       "id": "snacks",
       "name": "Snacks",
       "emoji": "🥨",
       "description": "Quick bites",
-      "image": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80"
+      "image": "/images/cat-snacks.jpg"
     }
   ],
   "recipes": [
@@ -48,7 +48,7 @@
       "id": "avocado-toast",
       "categoryId": "breakfast",
       "title": "Avocado Toast with Poached Egg",
-      "image": "https://images.unsplash.com/photo-1541519227354-08fa5d50c820?w=800&q=80",
+      "image": "/images/recipe-avocado-toast.jpg",
       "time": "15 min",
       "servings": 2,
       "difficulty": "Easy",
@@ -76,7 +76,7 @@
       "id": "banana-pancakes",
       "categoryId": "breakfast",
       "title": "Fluffy Banana Pancakes",
-      "image": "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=800&q=80",
+      "image": "/images/recipe-banana-pancakes.jpg",
       "time": "20 min",
       "servings": 4,
       "difficulty": "Easy",
@@ -106,7 +106,7 @@
       "id": "greek-salad",
       "categoryId": "lunch",
       "title": "Classic Greek Salad",
-      "image": "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=800&q=80",
+      "image": "/images/recipe-greek-salad.jpg",
       "time": "10 min",
       "servings": 2,
       "difficulty": "Easy",
@@ -135,7 +135,7 @@
       "id": "chicken-wrap",
       "categoryId": "lunch",
       "title": "Grilled Chicken Caesar Wrap",
-      "image": "https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=800&q=80",
+      "image": "/images/recipe-chicken-wrap.jpg",
       "time": "25 min",
       "servings": 2,
       "difficulty": "Medium",
@@ -164,7 +164,7 @@
       "id": "spaghetti-carbonara",
       "categoryId": "dinner",
       "title": "Spaghetti Carbonara",
-      "image": "https://images.unsplash.com/photo-1612874742237-6526221588e3?w=800&q=80",
+      "image": "/images/recipe-carbonara.jpg",
       "time": "30 min",
       "servings": 4,
       "difficulty": "Medium",
@@ -192,7 +192,7 @@
       "id": "butter-chicken",
       "categoryId": "dinner",
       "title": "Butter Chicken",
-      "image": "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=800&q=80",
+      "image": "/images/recipe-butter-chicken.jpg",
       "time": "45 min",
       "servings": 4,
       "difficulty": "Medium",
@@ -227,7 +227,7 @@
       "id": "chocolate-lava-cake",
       "categoryId": "desserts",
       "title": "Chocolate Lava Cake",
-      "image": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&q=80",
+      "image": "/images/recipe-lava-cake.jpg",
       "time": "25 min",
       "servings": 4,
       "difficulty": "Medium",
@@ -256,7 +256,7 @@
       "id": "mango-smoothie",
       "categoryId": "drinks",
       "title": "Tropical Mango Smoothie",
-      "image": "https://images.unsplash.com/photo-1623065422902-30a2d299bbe4?w=800&q=80",
+      "image": "/images/recipe-mango-smoothie.jpg",
       "time": "5 min",
       "servings": 2,
       "difficulty": "Easy",
@@ -284,7 +284,7 @@
       "id": "guacamole",
       "categoryId": "snacks",
       "title": "Fresh Guacamole & Chips",
-      "image": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?w=800&q=80",
+      "image": "/images/recipe-guacamole.jpg",
       "time": "10 min",
       "servings": 4,
       "difficulty": "Easy",
@@ -311,17 +311,17 @@
   ],
   "sliderImages": [
     {
-      "url": "https://images.unsplash.com/photo-1547592180-85f173990554?w=1400&q=80",
+      "url": "/images/slider1.jpg",
       "title": "Cook With Passion",
       "subtitle": "Discover recipes that inspire"
     },
     {
-      "url": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1400&q=80",
+      "url": "/images/slider2.jpg",
       "title": "Fresh Ingredients",
       "subtitle": "Simple food, extraordinary taste"
     },
     {
-      "url": "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1400&q=80",
+      "url": "/images/slider3.jpg",
       "title": "Cook Together",
       "subtitle": "Share the joy of cooking with friends"
     }
