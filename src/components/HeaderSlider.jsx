@@ -27,7 +27,7 @@ export default function HeaderSlider() {
                 <h1 className="slide__title">{slide.title}</h1>
                 <p className="slide__subtitle">{slide.subtitle}</p>
                 <a href="#categories" className="btn btn-primary btn-lg">
-                  Explore Recipes ↓
+                  Explore Recipes 
                 </a>
               </div>
             </div>

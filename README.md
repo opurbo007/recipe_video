@@ -1,4 +1,4 @@
-# 🍳 FlavourKit — Recipe & Cook Together
+# 🍳 me&u — Recipe & Cook Together
 
 A minimal, beautifully designed recipe website with live video calling so you can cook with friends in real time.
 
@@ -15,13 +15,13 @@ A minimal, beautifully designed recipe website with live video calling so you ca
 
 ## 🛠 Tech Stack
 
-| Tool | Purpose |
-|---|---|
-| React 18 + Vite | UI & bundler |
-| React Router v6 | Client-side routing |
-| PeerJS | WebRTC video calling |
-| Plain CSS | All styling — no frameworks |
-| Local JSON | Recipe data — no backend |
+| Tool            | Purpose                     |
+| --------------- | --------------------------- |
+| React 18 + Vite | UI & bundler                |
+| React Router v6 | Client-side routing         |
+| PeerJS          | WebRTC video calling        |
+| Plain CSS       | All styling — no frameworks |
+| Local JSON      | Recipe data — no backend    |
 
 ---
 
@@ -57,7 +57,7 @@ vite.config.js
 
 ```bash
 git clone <your-repo-url>
-cd flavourkit-recipe-app
+cd me&u-recipe-app
 ```
 
 ### 2. Install dependencies
@@ -80,9 +80,10 @@ Open your browser at **http://localhost:5173**
 
 ## 📞 How Video Calling Works
 
-FlavourKit uses **PeerJS** (WebRTC) for peer-to-peer video calls — no server required.
+me&u uses **PeerJS** (WebRTC) for peer-to-peer video calls — no server required.
 
 ### Flow:
+
 1. User opens a recipe and clicks **"Make With Friend"**
 2. A random **room ID** is generated and the user navigates to `/room/:id`
 3. The app requests camera + mic access
@@ -92,6 +93,7 @@ FlavourKit uses **PeerJS** (WebRTC) for peer-to-peer video calls — no server r
 7. Live video appears for both users
 
 ### To test locally:
+
 1. Open the app in **two different browser windows** (or different browsers)
 2. In window 1: go to any recipe → click **"Make With Friend"**
 3. Copy the invite URL from the room page
@@ -122,6 +124,7 @@ Output goes to the `dist/` folder — ready for static hosting (Vercel, Netlify,
 ## 🔧 Customising Recipes
 
 Edit `src/data/recipes.json` to add/change:
+
 - `categories` — add new food categories
 - `recipes` — add new recipes with ingredients, instructions, images
 - `sliderImages` — change the hero slider images
@@ -138,4 +141,4 @@ All images use Unsplash URLs — replace with your own hosted images for product
 
 ---
 
-*Built with React + Vite + PeerJS. No backend. No database. No auth.*
+_Built with React + Vite + PeerJS. No backend. No database. No auth._

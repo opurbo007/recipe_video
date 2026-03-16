@@ -311,7 +311,7 @@ export default function Room() {
       });
     });
 
-    const hostPeerId = `flavourkit-host-${roomId}`;
+    const hostPeerId = `me&u-host-${roomId}`;
 
     /*
       iceTransportPolicy: 'all'

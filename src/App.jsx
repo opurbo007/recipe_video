@@ -11,7 +11,7 @@ function Navbar() {
     <nav className="nav">
       <div className="nav__inner">
         <Link to="/" className="nav__logo">
-          Flavour<span>Kit</span>
+          me<span>&</span>u
         </Link>
         <div className="nav__links">
           <Link to="/">Home</Link>
@@ -25,7 +25,7 @@ function Navbar() {
 function Footer() {
   return (
     <footer className="footer">
-      Made with <span>♥</span> &amp; FlavourKit — Cook more, stress less.
+      Made with <span>♥</span> &amp; me&u — Cook more, stress less.
     </footer>
   );
 }
