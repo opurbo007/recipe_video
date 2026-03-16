@@ -305,13 +305,29 @@ export default function Room() {
       }
     };
 
-    // ICE candidates → send to peer via socket
+    // Queue candidates that arrive before setRemoteDescription is done
+    const iceCandidateQueue = [];
+    let remoteDescSet = false;
+
+    const drainCandidateQueue = async () => {
+      while (iceCandidateQueue.length) {
+        const c = iceCandidateQueue.shift();
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(c));
+          log(`Queued candidate added: ${c.candidate?.substring(0, 40)}…`);
+        } catch (e) { log(`Queued candidate error: ${e.message}`); }
+      }
+    };
+
+    // RTCIceCandidate is NOT serializable by Socket.IO directly.
+    // Must call .toJSON() — otherwise it sends {} and arrives as undefined on the other side.
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        log(`ICE candidate: ${e.candidate.type} / ${e.candidate.protocol}`);
+        const json = e.candidate.toJSON(); // ← CRITICAL FIX
+        log(`Candidate: ${json.type} / ${json.protocol}`);
         socketRef.current?.emit('ice-candidate', {
           targetId: remoteIdRef.current,
-          candidate: e.candidate,
+          candidate: json,
         });
       } else {
         log('ICE gathering complete');
@@ -404,7 +420,8 @@ export default function Room() {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         await pc.setLocalDescription(offer);
         log('Offer created and set as local description');
-        socket.emit('offer', { targetId: guestId, offer });
+        // SDP must be sent as plain JSON — RTCSessionDescription is not serializable directly
+        socket.emit('offer', { targetId: guestId, offer: offer.toJSON ? offer.toJSON() : offer });
       } catch (e) {
         log(`Error creating offer: ${e.message}`);
       }
@@ -421,12 +438,15 @@ export default function Room() {
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         log('Remote description (offer) set');
+        remoteDescSet = true;
+        await drainCandidateQueue(); // apply any candidates that arrived early
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        log('Answer created and set as local description');
+        log('Answer created and set');
 
-        socket.emit('answer', { targetId: fromId, answer });
+        // SDP must also be sent as plain JSON
+        socket.emit('answer', { targetId: fromId, answer: answer.toJSON ? answer.toJSON() : answer });
         log('Answer sent');
       } catch (e) {
         log(`Error handling offer: ${e.message}`);
@@ -440,19 +460,29 @@ export default function Room() {
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
         log('Remote description (answer) set ✓');
+        remoteDescSet = true;
+        await drainCandidateQueue(); // apply any candidates that arrived early
       } catch (e) {
         log(`Error setting answer: ${e.message}`);
       }
     });
 
     socket.on('ice-candidate', async ({ fromId, candidate }) => {
-      log(`Received ICE candidate from: ${fromId} — ${candidate?.type}`);
+      if (!candidate) { log('Received null candidate (end-of-candidates)'); return; }
+      log(`Received candidate from: ${fromId} — type: ${candidate.type || 'unknown'}, sdp: ${(candidate.candidate || '').substring(0, 30)}`);
       const pc = pcRef.current;
-      if (!pc || !candidate) return;
+      if (!pc) return;
+      if (!remoteDescSet) {
+        // Remote description not set yet — queue for later
+        log('Queuing candidate (remote desc not ready)');
+        iceCandidateQueue.push(candidate);
+        return;
+      }
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        log(`Candidate added: ${candidate.type}`);
       } catch (e) {
-        log(`Error adding ICE candidate: ${e.message}`);
+        log(`Error adding candidate: ${e.message}`);
       }
     });
 
