@@ -5,19 +5,13 @@ import data from '../data/recipes.json';
 import '../styles/main.css';
 
 
-const ICE_SERVERS = [
+ const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
-  // Primary TURN — openrelay (free, reliable)
-  { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  // Secondary TURN — freestun
-  { urls: 'turn:freestun.net:3479',  username: 'free', credential: 'free' },
-  { urls: 'turns:freestun.net:5350', username: 'free', credential: 'free' },
-];
+  { urls: 'stun:stun4.l.google.com:19302' },
+];;
 
 /* ─── Attach stream to <video> and force play() ───────────────────────────── */
 function attachStream(el, stream) {
