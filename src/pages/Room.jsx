@@ -241,7 +241,7 @@ export default function Room() {
   const [remoteCamOff, setRemoteCamOff] = useState(false);
   const [iceState,     setIceState]     = useState('');
   const [connStatus,   setConnStatus]   = useState('');
-  const [audioMuted,   setAudioMuted]   = useState(false);
+const [audioMuted, setAudioMuted] = useState(true);
   const [debugLogs,    setDebugLogs]    = useState([]);
   const [showDebug,    setShowDebug]    = useState(false);
 
@@ -292,41 +292,17 @@ const createPC = useCallback((localStream) => {
 
       if (remoteStream.getTracks().length > 0) {
         const el = remoteVideoRef.current;
-        if (el) {
-          el.srcObject = remoteStream;
+if (el) {
+  el.srcObject = remoteStream;
+  el.muted = true;       // start muted
+  el.autoplay = true;
+  el.playsInline = true;
 
-          /*
-            AUTOPLAY TRICK:
-            All browsers allow autoplay when muted=true.
-            Once playback starts we immediately unmute — this is a
-            programmatic unmute on a playing element which browsers allow.
-            The user already gave a gesture (tapping "Join Call") so
-            this is within the same gesture context session.
-          */
-          el.muted = true;
-          el.volume = 1.0;
-
-          el.play()
-            .then(() => {
-              log('Playback started (muted) — unmuting now');
-              el.muted = false;
-              setAudioMuted(false);
-              log('Audio unmuted ✓');
-            })
-            .catch(err => {
-              log(`play() failed even muted: ${err.name} — ${err.message}`);
-              // Last resort: try completely silent then unmute on next user interaction
-              setAudioMuted(true);
-            });
-
-          el.onvolumechange = () => {
-            // Some browsers re-mute after a moment — catch and re-unmute
-            if (el.muted && !el.paused) {
-              log('Browser re-muted — forcing unmute');
-              el.muted = false;
-            }
-          };
-        }
+  el.play().then(() => {
+    log('Playback started (muted)');
+    // Wait for user tap to unmute
+  }).catch(e => log(`play() failed: ${e.name}`));
+}
         setConnected(true);
         setWaiting(false);
         setConnStatus('');
@@ -337,27 +313,18 @@ const createPC = useCallback((localStream) => {
  
 
     
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-      const cand = e.candidate.candidate;
-const type = cand.includes("typ relay")
-  ? "relay"
-  : cand.includes("typ srflx")
-  ? "srflx"
-  : cand.includes("typ host")
-  ? "host"
-  : "unknown";
-
-log(`Candidate type: ${type}`);
-        socketRef.current?.emit('ice-candidate', {
-          targetId: remoteIdRef.current,
-          candidate: json,
-        });
-      } else {
-        log('ICE gathering complete');
-      }
-    };
-
+  pc.onicecandidate = (e) => {
+  if (e.candidate) {
+    const candJSON = e.candidate.toJSON();
+    socketRef.current?.emit('ice-candidate', {
+      targetId: remoteIdRef.current,
+      candidate: candJSON,
+    });
+    log(`Sent ICE candidate: ${candJSON.type}`);
+  } else {
+    log('ICE gathering complete');
+  }
+};
     pc.oniceconnectionstatechange = () => {
       const s = pc.iceConnectionState;
       log(`ICE state: ${s}`);
@@ -594,15 +561,16 @@ await drainIceQueue();
     setCamOn(next); sendMediaState(micOn, next);
   };
 
-  const tapToUnmute = () => {
-    const el = remoteVideoRef.current;
-    if (!el) return;
-    el.muted = false;
-    el.volume = 1.0;
-    el.play()
-      .then(() => { setAudioMuted(false); log('Unmuted by user tap'); })
-      .catch(e => log(`tapToUnmute failed: ${e.name}`));
-  };
+ const tapToUnmute = () => {
+  const el = remoteVideoRef.current;
+  if (!el) return;
+  el.muted = false;
+  el.volume = 1.0;
+  el.play().then(() => {
+    setAudioMuted(false);
+    log('Audio unmuted by user gesture');
+  }).catch(e => log(`tapToUnmute failed: ${e.name}`));
+};
 
   const endCall = () => {
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
