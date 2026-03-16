@@ -4,36 +4,43 @@ import Peer from 'peerjs';
 import data from '../data/recipes.json';
 import '../styles/main.css';
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   ICE STRATEGY:
-   iceTransportPolicy: 'all'  — tries direct P2P first (fast, same-network)
-                                 falls back to TURN relay when P2P fails (different networks)
-   We set a short iceGatheringTimeout so TURN kicks in quickly instead of
-   waiting 30 seconds for STUN to give up.
+/* ─── TURN servers ────────────────────────────────────────────────────────────
+   Using Metered.ca documented demo credentials + multiple fallbacks.
+   iceTransportPolicy: 'all' — direct P2P on same network, TURN on different.
 ───────────────────────────────────────────────────────────────────────────── */
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
-  // Primary TURN — openrelay (free, reliable)
+  // Metered.ca TURN — documented public demo credentials
+  { urls: 'turn:a.relay.metered.ca:80',    username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
+  { urls: 'turn:a.relay.metered.ca:80?transport=tcp', username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
+  { urls: 'turn:a.relay.metered.ca:443',   username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
+  { urls: 'turns:a.relay.metered.ca:443',  username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
+  // openrelay backup
   { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  // Secondary TURN — freestun
-  { urls: 'turn:freestun.net:3479',  username: 'free', credential: 'free' },
-  { urls: 'turns:freestun.net:5350', username: 'free', credential: 'free' },
 ];
 
-/* ─── Attach stream to <video> and force play() ───────────────────────────── */
-function attachStream(el, stream) {
+/* ─── Attach stream + force play with retry ───────────────────────────────── */
+function attachStream(el, stream, retries = 0) {
   if (!el || !stream) return;
-  if (el.srcObject === stream) return;
+  if (el.srcObject === stream && !el.paused) return;
   el.srcObject = stream;
-  el.play().catch(() => {});
+  const p = el.play();
+  if (p && p.catch) {
+    p.catch(() => {
+      // Retry up to 3 times with increasing delay
+      if (retries < 3) {
+        setTimeout(() => attachStream(el, stream, retries + 1), 300 * (retries + 1));
+      }
+    });
+  }
 }
 
-/* ─── Classify getUserMedia errors ───────────────────────────────────────── */
+/* ─── getUserMedia error classifier ──────────────────────────────────────── */
 function classifyError(err) {
   const name = err?.name || '';
   const msg  = (err?.message || '').toLowerCase();
@@ -45,51 +52,37 @@ function classifyError(err) {
   return 'unknown';
 }
 
-/* ─── Request mic + camera separately (iOS Safari shows one prompt at a time) */
+/* ─── Request mic + camera separately (iOS shows one prompt at a time) ──── */
 async function getBestStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
     return { stream: null, mode: 'blocked', warning: 'Camera/mic requires HTTPS.' };
   }
-
   let audioStream = null;
   let videoStream = null;
-  let audioWarn   = '';
-  let videoWarn   = '';
+  let audioWarn = '', videoWarn = '';
 
   try {
     audioStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl:  true,
-        sampleRate: 48000,
-      },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       video: false,
     });
   } catch (e) {
     const k = classifyError(e);
-    audioWarn = k === 'permission' ? 'Mic denied.' : k === 'in-use' ? 'Mic in use.' : 'No mic.';
+    audioWarn = k === 'permission' ? 'Mic denied. Tap 🔒 → Allow.' : 'No mic detected.';
   }
 
   try {
     videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
   } catch (e) {
     const k = classifyError(e);
-    videoWarn = k === 'permission' ? 'Camera denied.' : k === 'in-use' ? 'Camera in use.' : 'No camera.';
+    videoWarn = k === 'permission' ? 'Camera denied. Tap 🔒 → Allow.' : 'No camera detected.';
   }
 
   const hasAudio = !!audioStream?.getAudioTracks().length;
   const hasVideo = !!videoStream?.getVideoTracks().length;
 
   if (!hasAudio && !hasVideo) {
-    const denied = audioWarn.includes('denied') && videoWarn.includes('denied');
-    return {
-      stream: new MediaStream(),
-      mode: 'no-device',
-      warning: denied
-        ? 'Camera & mic denied. Tap 🔒 in address bar → Allow both → Retry.'
-        : 'No camera or mic found.',
-    };
+    return { stream: new MediaStream(), mode: 'no-device', warning: `${audioWarn} ${videoWarn}`.trim() };
   }
 
   const merged = new MediaStream();
@@ -97,7 +90,7 @@ async function getBestStream() {
   if (hasVideo) videoStream.getVideoTracks().forEach(t => merged.addTrack(t));
 
   const mode    = hasAudio && hasVideo ? 'video+audio' : hasAudio ? 'audio-only' : 'video-only';
-  const warning = !hasAudio ? (audioWarn || 'No mic.') : !hasVideo ? (videoWarn || 'No camera.') : '';
+  const warning = !hasAudio ? audioWarn : !hasVideo ? videoWarn : '';
   return { stream: merged, mode, warning };
 }
 
@@ -118,9 +111,7 @@ function RecipePanel({ recipe }) {
       <div className="room-recipe-panel__header">
         <img src={recipe.image} alt={recipe.title} className="room-recipe-panel__img" />
         <div className="room-recipe-panel__meta-row">
-          <span>⏱ {recipe.time}</span>
-          <span>👤 {recipe.servings}</span>
-          <span>📊 {recipe.difficulty}</span>
+          <span>⏱ {recipe.time}</span><span>👤 {recipe.servings}</span><span>📊 {recipe.difficulty}</span>
         </div>
         <h2 className="room-recipe-panel__title">{recipe.title}</h2>
       </div>
@@ -129,8 +120,7 @@ function RecipePanel({ recipe }) {
           Ingredients <span className="room-tab__count">{recipe.ingredients.length}</span>
         </button>
         <button className={`room-tab ${tab === 'steps' ? 'active' : ''}`} onClick={() => setTab('steps')}>
-          Steps{' '}
-          <span className={`room-tab__count ${doneCount > 0 ? 'room-tab__count--done' : ''}`}>
+          Steps <span className={`room-tab__count ${doneCount > 0 ? 'room-tab__count--done' : ''}`}>
             {doneCount > 0 ? `${doneCount}/${recipe.instructions.length}` : recipe.instructions.length}
           </span>
         </button>
@@ -145,11 +135,7 @@ function RecipePanel({ recipe }) {
         )}
         {tab === 'steps' && (
           <>
-            {doneCount > 0 && (
-              <div className="room-progress">
-                <div className="room-progress__bar" style={{ width: `${(doneCount / recipe.instructions.length) * 100}%` }} />
-              </div>
-            )}
+            {doneCount > 0 && <div className="room-progress"><div className="room-progress__bar" style={{ width: `${(doneCount / recipe.instructions.length) * 100}%` }} /></div>}
             <p className="room-steps-hint">Tap a step to mark it done ✓</p>
             <ol className="room-steps">
               {recipe.instructions.map((step, i) => (
@@ -166,7 +152,7 @@ function RecipePanel({ recipe }) {
   );
 }
 
-/* ─── Lobby screen ─────────────────────────────────────────────────────────── */
+/* ─── Lobby ────────────────────────────────────────────────────────────────── */
 function Lobby({ recipe, roomId, onJoin }) {
   const [joining,  setJoining]  = useState(false);
   const [lobbyErr, setLobbyErr] = useState('');
@@ -174,13 +160,13 @@ function Lobby({ recipe, roomId, onJoin }) {
   const handleJoin = async () => {
     setJoining(true);
     setLobbyErr('');
-    const mediaResult = await getBestStream();
-    if (mediaResult.mode === 'blocked') {
-      setLobbyErr(mediaResult.warning);
+    const result = await getBestStream();
+    if (result.mode === 'blocked') {
+      setLobbyErr(result.warning);
       setJoining(false);
       return;
     }
-    onJoin(mediaResult);
+    onJoin(result);
   };
 
   return (
@@ -196,36 +182,42 @@ function Lobby({ recipe, roomId, onJoin }) {
         <h2 className="room-lobby__title">Ready to cook together?</h2>
         <p className="room-lobby__subtitle">
           Room <code className="room-lobby__code">{roomId}</code><br />
-          Works on any network — WiFi or mobile data.
+          Allow camera &amp; microphone when asked.
         </p>
-        {lobbyErr && (
-          <div className="room-lobby__error"><span>⚠️</span><span>{lobbyErr}</span></div>
-        )}
+        {lobbyErr && <div className="room-lobby__error"><span>⚠️</span><span>{lobbyErr}</span></div>}
         <button className="room-lobby__join-btn" onClick={handleJoin} disabled={joining}>
           {joining ? '📷 Starting camera…' : '🎥 Join Call'}
         </button>
-        <p className="room-lobby__hint">Your browser will ask for camera &amp; mic — tap Allow.</p>
+        <p className="room-lobby__hint">Tap Join — browser will ask for permission once.</p>
       </div>
     </div>
   );
 }
 
-/* ─── ICE state badge ──────────────────────────────────────────────────────── */
-function IceBadge({ state }) {
-  const map = {
-    checking:     { label: '🔄 Connecting…',       color: '#f59e0b' },
-    disconnected: { label: '⚠️ Link unstable…',    color: '#f97316' },
-    failed:       { label: '❌ Failed — tap End Call and rejoin', color: '#ef4444' },
-  };
-  const info = map[state];
-  if (!info) return null;
+/* ─── Debug panel (visible on screen — helps diagnose mobile issues) ────────── */
+function DebugPanel({ logs, visible, onToggle }) {
   return (
-    <div style={{
-      background: 'rgba(0,0,0,0.55)', border: `1px solid ${info.color}`,
-      borderRadius: 8, padding: '8px 14px', fontSize: '0.8rem',
-      color: info.color, marginBottom: 8,
-    }}>
-      {info.label}
+    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999 }}>
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%', padding: '6px', background: '#1a1a1a',
+          color: '#888', border: 'none', fontSize: '0.7rem', cursor: 'pointer',
+          borderTop: '1px solid #333',
+        }}
+      >
+        {visible ? '▼ Hide Debug' : '▲ Show Debug Log'}
+      </button>
+      {visible && (
+        <div style={{
+          background: '#0a0a0a', color: '#0f0', fontFamily: 'monospace',
+          fontSize: '0.65rem', padding: '8px', maxHeight: '180px',
+          overflowY: 'auto', borderTop: '1px solid #333',
+        }}>
+          {logs.map((l, i) => <div key={i}>{l}</div>)}
+          {logs.length === 0 && <div>No logs yet.</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -243,6 +235,7 @@ export default function Room() {
   const remoteStreamRef = useRef(null);
   const dataConnRef     = useRef(null);
   const activeCallRef   = useRef(null);
+  const streamRetryRef  = useRef(null);
 
   const [phase,        setPhase]        = useState('lobby');
   const [connected,    setConnected]    = useState(false);
@@ -256,10 +249,17 @@ export default function Room() {
   const [remoteCamOff, setRemoteCamOff] = useState(false);
   const [iceState,     setIceState]     = useState('');
   const [connStatus,   setConnStatus]   = useState('');
+  const [debugLogs,    setDebugLogs]    = useState([]);
+  const [showDebug,    setShowDebug]    = useState(false);
 
   const recipeId   = searchParams.get('recipe');
   const recipe     = recipeId ? data.recipes.find(r => r.id === recipeId) : null;
   const inviteLink = `${window.location.origin}/room/${roomId}${recipeId ? `?recipe=${recipeId}` : ''}`;
+
+  const log = useCallback((msg) => {
+    const ts = new Date().toLocaleTimeString();
+    setDebugLogs(prev => [`[${ts}] ${msg}`, ...prev].slice(0, 60));
+  }, []);
 
   const sendMediaState = useCallback((mic, cam) => {
     const conn = dataConnRef.current;
@@ -268,69 +268,130 @@ export default function Room() {
 
   const wireDataConn = useCallback((conn) => {
     dataConnRef.current = conn;
+    log('DataConn received');
     conn.on('data', msg => {
       if (msg?.type === 'mediaState') {
         setRemoteMicOff(!msg.micOn);
         setRemoteCamOff(!msg.camOn);
       }
     });
-    conn.on('open', () => sendMediaState(micOn, camOn));
+    conn.on('open', () => {
+      log('DataConn open — sending media state');
+      sendMediaState(micOn, camOn);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sendMediaState]);
+  }, [sendMediaState, log]);
+
+  /* Retry attaching stream every 500ms until video plays */
+  const startStreamRetry = useCallback((remoteStream) => {
+    clearInterval(streamRetryRef.current);
+    let attempts = 0;
+    streamRetryRef.current = setInterval(() => {
+      const el = remoteVideoRef.current;
+      if (!el) return;
+      if (el.srcObject !== remoteStream) {
+        el.srcObject = remoteStream;
+        log(`Stream attach attempt ${attempts + 1}`);
+      }
+      if (el.paused) {
+        el.play().then(() => {
+          log('play() succeeded');
+          clearInterval(streamRetryRef.current);
+        }).catch(e => {
+          log(`play() failed: ${e.name}`);
+        });
+      } else {
+        log(`Video playing on attempt ${attempts + 1}`);
+        clearInterval(streamRetryRef.current);
+      }
+      if (++attempts >= 10) {
+        log('Max stream attach attempts reached');
+        clearInterval(streamRetryRef.current);
+      }
+    }, 500);
+  }, [log]);
+
+  const onRemoteStream = useCallback((remoteStream) => {
+    log(`onRemoteStream fired — id: ${remoteStream.id}, tracks: ${remoteStream.getTracks().length}`);
+
+    // Reject exact echo
+    const local = localStreamRef.current;
+    if (local && remoteStream.id === local.id) {
+      log('Rejected: echo of local stream');
+      return;
+    }
+
+    log(`Audio tracks: ${remoteStream.getAudioTracks().length}, Video tracks: ${remoteStream.getVideoTracks().length}`);
+
+    remoteStreamRef.current = remoteStream;
+    startStreamRetry(remoteStream);
+    setConnected(true);
+    setWaiting(false);
+    setConnStatus('');
+    setIceState('');
+  }, [log, startStreamRetry]);
 
   const monitorIce = useCallback((call) => {
     const pc = call?.peerConnection;
-    if (!pc) return;
+    if (!pc) { log('No peerConnection on call'); return; }
     let disconnectTimer = null;
+
     const update = () => {
       const s = pc.iceConnectionState;
+      const g = pc.iceGatheringState;
+      log(`ICE connection: ${s} | gathering: ${g}`);
       clearTimeout(disconnectTimer);
       if (s === 'disconnected') {
         disconnectTimer = setTimeout(() => {
           if (pc.iceConnectionState === 'disconnected') {
             setIceState('disconnected');
-            try { pc.restartIce(); } catch (_) {}
+            try { pc.restartIce(); log('ICE restart triggered'); } catch (_) {}
           }
         }, 4000);
         return;
       }
+      if (s === 'failed') {
+        setIceState('failed');
+        log('ICE FAILED — trying ICE restart');
+        try { pc.restartIce(); } catch (_) {}
+        return;
+      }
       setIceState(s === 'connected' || s === 'completed' ? '' : s);
     };
+
     pc.oniceconnectionstatechange = update;
+    pc.onicegatheringstatechange  = update;
+    pc.onconnectionstatechange    = () => log(`Connection state: ${pc.connectionState}`);
+    pc.onsignalingstatechange     = () => log(`Signaling state: ${pc.signalingState}`);
+
+    // Log each ICE candidate type gathered
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        log(`ICE candidate: ${e.candidate.type} / ${e.candidate.protocol}`);
+      } else {
+        log('ICE gathering complete');
+      }
+    };
+
     update();
-  }, []);
+  }, [log]);
 
-  const onRemoteStream = useCallback((remoteStream) => {
-    const local = localStreamRef.current;
-    if (local && remoteStream.id === local.id) return;
-    remoteStreamRef.current = remoteStream;
-    attachStream(remoteVideoRef.current, remoteStream);
-    setConnected(true);
-    setWaiting(false);
-    setConnStatus('');
-  }, []);
-
-  /* ── Called by Lobby after user taps Join ── */
   const startCall = useCallback(({ stream, mode, warning }) => {
     localStreamRef.current = stream;
     setMediaMode(mode);
     setMediaWarning(warning || '');
     setPhase('call');
+    log(`Call started — mode: ${mode}`);
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (stream?.getVideoTracks().length > 0) attachStream(localVideoRef.current, stream);
-      });
-    });
+    // Attach local video with retry
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (stream?.getVideoTracks().length > 0) {
+        attachStream(localVideoRef.current, stream);
+        log('Local video attached');
+      }
+    }));
 
-    const hostPeerId = `flavourkit-host-${roomId}`;
-
-    /*
-      iceTransportPolicy: 'all'
-      → Same network (WiFi/LAN): uses direct P2P — fast, no TURN needed
-      → Different networks (4G vs WiFi): direct fails, ICE falls back to TURN relay
-      The key is having reliable TURN servers as fallback + enough candidates collected.
-    */
+    const hostPeerId = `flavourkit2-host-${roomId}`;
     const peerConfig = {
       config: {
         iceServers: ICE_SERVERS,
@@ -342,8 +403,11 @@ export default function Room() {
     };
 
     const safeStream = stream || new MediaStream();
+    log(`SafeStream tracks: ${safeStream.getTracks().length}`);
 
     const onCallClose = () => {
+      log('Call closed');
+      clearInterval(streamRetryRef.current);
       remoteStreamRef.current = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setConnected(false);
@@ -351,24 +415,25 @@ export default function Room() {
       setRemoteMicOff(false);
       setRemoteCamOff(false);
       setIceState('');
-      setConnStatus('');
     };
 
-    setConnStatus('Connecting to server…');
+    setConnStatus('Connecting…');
+    log(`Registering as host: ${hostPeerId}`);
 
-    /* Try to become HOST */
     const hostPeer = new Peer(hostPeerId, peerConfig);
     peerRef.current = hostPeer;
 
-    hostPeer.on('open', () => {
+    hostPeer.on('open', id => {
+      log(`Host peer open: ${id}`);
       setWaiting(true);
       setConnStatus('Waiting for friend…');
       hostPeer.on('connection', conn => wireDataConn(conn));
     });
 
     hostPeer.on('call', call => {
+      log('Incoming call — answering');
       activeCallRef.current = call;
-      setConnStatus('Friend joining — establishing relay…');
+      setConnStatus('Friend joining…');
       call.answer(safeStream);
       monitorIce(call);
       call.on('stream', onRemoteStream);
@@ -376,15 +441,17 @@ export default function Room() {
     });
 
     hostPeer.on('error', err => {
+      log(`Host peer error: ${err.type}`);
       if (err.type === 'unavailable-id') {
-        /* Become GUEST */
+        log('ID taken — becoming guest');
         setConnStatus('Joining room…');
         hostPeer.destroy();
         const guestPeer = new Peer(peerConfig);
         peerRef.current = guestPeer;
 
-        guestPeer.on('open', () => {
-          setConnStatus('Calling host — establishing relay…');
+        guestPeer.on('open', id => {
+          log(`Guest peer open: ${id} — calling host: ${hostPeerId}`);
+          setConnStatus('Calling host…');
           const call = guestPeer.call(hostPeerId, safeStream);
           activeCallRef.current = call;
           monitorIce(call);
@@ -394,22 +461,28 @@ export default function Room() {
           const tryData = (n = 0) => {
             const conn = guestPeer.connect(hostPeerId, { reliable: true });
             conn.on('open', () => wireDataConn(conn));
-            conn.on('error', () => { if (n < 5) setTimeout(() => tryData(n + 1), 800); });
+            conn.on('error', () => {
+              log(`DataConn attempt ${n} failed`);
+              if (n < 5) setTimeout(() => tryData(n + 1), 800);
+            });
           };
           setTimeout(() => tryData(), 500);
         });
 
         guestPeer.on('error', e => {
-          setConnStatus(`Error: ${e.type} — tap End Call and try again.`);
+          log(`Guest peer error: ${e.type} — ${e.message}`);
+          setConnStatus(`Error: ${e.type}. Tap End Call and rejoin.`);
         });
       } else {
-        setConnStatus(`Error: ${err.type} — tap End Call and try again.`);
+        log(`Peer error: ${err.type} — ${err.message}`);
+        setConnStatus(`Error: ${err.type}. Tap End Call and rejoin.`);
       }
     });
-  }, [roomId, wireDataConn, monitorIce, onRemoteStream]);
+  }, [roomId, wireDataConn, monitorIce, onRemoteStream, log, startStreamRetry]);
 
   useEffect(() => {
     return () => {
+      clearInterval(streamRetryRef.current);
       if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
       if (peerRef.current)        peerRef.current.destroy();
     };
@@ -420,8 +493,7 @@ export default function Room() {
     catch {
       const el = document.createElement('textarea');
       el.value = inviteLink; document.body.appendChild(el);
-      el.select(); document.execCommand('copy');
-      document.body.removeChild(el);
+      el.select(); document.execCommand('copy'); document.body.removeChild(el);
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -432,6 +504,7 @@ export default function Room() {
     const next = !micOn;
     localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = next; });
     setMicOn(next); sendMediaState(next, camOn);
+    log(`Mic ${next ? 'on' : 'off'}`);
   };
 
   const toggleCam = () => {
@@ -439,9 +512,11 @@ export default function Room() {
     const next = !camOn;
     localStreamRef.current.getVideoTracks().forEach(t => { t.enabled = next; });
     setCamOn(next); sendMediaState(micOn, next);
+    log(`Cam ${next ? 'on' : 'off'}`);
   };
 
   const endCall = () => {
+    clearInterval(streamRetryRef.current);
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
     if (peerRef.current)        peerRef.current.destroy();
     navigate(-1);
@@ -453,32 +528,43 @@ export default function Room() {
     return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />;
   }
 
+  const iceColor = { checking: '#f59e0b', disconnected: '#f97316', failed: '#ef4444' };
+
   return (
-    <div className="room-page">
+    <div className="room-page" style={{ paddingBottom: showDebug ? 220 : 44 }}>
       <nav className="room-nav">
         <div className="room-nav__logo">Flavour<span>Kit</span> · Live</div>
         <div className="room-nav__center">
           <div className={`status-dot ${waiting ? 'waiting' : ''}`} />
           <span className="status-text">
-            {connected ? '🎉 Connected — cook away!'
+            {connected ? '🎉 Connected!'
               : connStatus || (waiting ? 'Waiting for friend…' : 'Connecting…')}
           </span>
         </div>
-        <div className="room-nav__id">Room: {roomId}</div>
+        <div className="room-nav__id">{roomId}</div>
       </nav>
 
       <div className="room-layout">
         <div className="room-call-col">
           {mediaWarning && (
-            <div className={`room-media-warning ${mediaMode === 'blocked' ? 'room-media-warning--blocked' : ''}`}>
+            <div className="room-media-warning">
               <span>⚠️</span>
               <span style={{ flex: 1 }}>{mediaWarning}</span>
-              {mediaMode === 'blocked' && (
-                <button className="room-retry-btn" onClick={() => setPhase('lobby')}>Retry</button>
-              )}
+              <button className="room-retry-btn" onClick={() => setPhase('lobby')}>Retry</button>
             </div>
           )}
-          <IceBadge state={iceState} />
+
+          {iceState && iceColor[iceState] && (
+            <div style={{
+              background: 'rgba(0,0,0,0.5)', border: `1px solid ${iceColor[iceState]}`,
+              borderRadius: 8, padding: '8px 14px', fontSize: '0.8rem',
+              color: iceColor[iceState], marginBottom: 8,
+            }}>
+              {iceState === 'checking'     && '🔄 Establishing connection…'}
+              {iceState === 'disconnected' && '⚠️ Link unstable — trying to recover…'}
+              {iceState === 'failed'       && '❌ Connection failed — tap End Call and rejoin'}
+            </div>
+          )}
 
           <div className="room-videos">
             {/* YOUR VIDEO */}
@@ -541,15 +627,16 @@ export default function Room() {
             )}
             <div className="room-controls-divider" />
             <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copyInviteLink}>
-              {copied ? '✓ Copied!' : '🔗 Copy Invite Link'}
+              {copied ? '✓ Copied!' : '🔗 Copy Link'}
             </button>
-            <div className="room-link-pill" title={inviteLink}>{inviteLink}</div>
-            <button className="end-btn" onClick={endCall}>✕ End Call</button>
+            <button className="end-btn" onClick={endCall}>✕ End</button>
           </div>
         </div>
 
         <RecipePanel recipe={recipe} />
       </div>
+
+      <DebugPanel logs={debugLogs} visible={showDebug} onToggle={() => setShowDebug(v => !v)} />
     </div>
   );
 }
