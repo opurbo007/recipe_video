@@ -4,27 +4,28 @@ import { io } from 'socket.io-client';
 import data from '../data/recipes.json';
 import '../styles/main.css';
 
-/* ─────────────────────────────────────────────────────────────────────────────
-  SIGNALING SERVER URL
-  ─────────────────────────────────────────────────────────────────────────────
-  LOCAL DEV:   http://localhost:3001
-  PRODUCTION:  your Render.com URL e.g. https://flavourkit-signal.onrender.com
-  Change SIGNAL_URL to your deployed server URL before deploying to Vercel.
-───────────────────────────────────────────────────────────────────────────── */
+
 const SIGNAL_URL = import.meta.env.VITE_SIGNAL_URL || 'http://localhost:3001';
 
-/* ─── ICE servers — STUN + multiple TURN for cross-network ──────────────── */
 const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:freestun.net:3479',  username: 'free', credential: 'free' },
-  { urls: 'turns:freestun.net:5350', username: 'free', credential: 'free' },
-];
+  { urls: "stun:stun.l.google.com:19302" },
 
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turns:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  }
+];
 /* ─── Attach stream + force play + explicit unmute ─────────────────────── */
 function attachStream(el, stream) {
   if (!el || !stream) return;
@@ -255,17 +256,21 @@ export default function Room() {
   }, []);
 
   /* ── Create RTCPeerConnection ── */
-  const createPC = useCallback((localStream) => {
+const createPC = useCallback((localStream) => {
+
+  iceQueueRef.current = [];
+  remoteDescSetRef.current = false;
     if (pcRef.current) {
       pcRef.current.close();
     }
 
-    const pc = new RTCPeerConnection({
-      iceServers: ICE_SERVERS,
-      iceCandidatePoolSize: 10,
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require',
-    });
+   const pc = new RTCPeerConnection({
+  iceServers: ICE_SERVERS,
+  iceTransportPolicy: "all",
+  iceCandidatePoolSize: 10,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require',
+});
     pcRef.current = pc;
 
     // Add local tracks
@@ -334,8 +339,16 @@ export default function Room() {
     
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        const json = e.candidate.toJSON(); 
-        log(`Candidate: ${json.type} / ${json.protocol}`);
+      const cand = e.candidate.candidate;
+const type = cand.includes("typ relay")
+  ? "relay"
+  : cand.includes("typ srflx")
+  ? "srflx"
+  : cand.includes("typ host")
+  ? "host"
+  : "unknown";
+
+log(`Candidate type: ${type}`);
         socketRef.current?.emit('ice-candidate', {
           targetId: remoteIdRef.current,
           candidate: json,
@@ -354,7 +367,7 @@ export default function Room() {
       } else if (s === 'failed') {
         setIceState('failed');
         log('ICE failed — restarting');
-        try { pc.restartIce(); } catch (_) {}
+        try {pc.restartIce();  } catch (_) {}
       } else if (s === 'disconnected') {
         setIceState('disconnected');
       } else {
