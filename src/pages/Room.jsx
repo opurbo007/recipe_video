@@ -317,8 +317,40 @@ export default function Room() {
     }, 50);
 
     const hostPeerId = `recipetogether-host-${roomId}`;
+    /*
+      WHY TURN SERVERS ARE REQUIRED FOR MOBILE:
+      - STUN only works when both peers have a reachable public IP (open NAT).
+      - Mobile carriers use Symmetric NAT — STUN cannot punch through it.
+      - TURN relays the media through a server when direct P2P fails.
+      - Without TURN: mobile ↔ desktop or mobile ↔ mobile = no stream.
+      Using Open Relay (free public TURN by Metered.ca) — no account needed.
+    */
+    const ICE_SERVERS = [
+      // STUN — fast direct connection when NAT allows it
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      // TURN over UDP (port 80 — works through most firewalls)
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      // TURN over TCP (fallback when UDP is blocked)
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      // TURNS over TLS (most restrictive networks — corporate/school firewalls)
+      {
+        urls: 'turns:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+    ];
+
     const peerConfig = {
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] },
+      config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 },
     };
     const safeStream = stream || new MediaStream();
 
