@@ -29,10 +29,11 @@ function attachStream(el, stream, retries = 0) {
   if (!el || !stream) return;
   if (el.srcObject === stream && !el.paused) return;
   el.srcObject = stream;
+  el.muted = false;          // ← explicitly unmute — React/browser may set it true
+  el.volume = 1.0;           // ← ensure full volume
   const p = el.play();
   if (p && p.catch) {
     p.catch(() => {
-      // Retry up to 3 times with increasing delay
       if (retries < 3) {
         setTimeout(() => attachStream(el, stream, retries + 1), 300 * (retries + 1));
       }
@@ -249,6 +250,7 @@ export default function Room() {
   const [remoteCamOff, setRemoteCamOff] = useState(false);
   const [iceState,     setIceState]     = useState('');
   const [connStatus,   setConnStatus]   = useState('');
+  const [audioMuted,   setAudioMuted]   = useState(false);
   const [debugLogs,    setDebugLogs]    = useState([]);
   const [showDebug,    setShowDebug]    = useState(false);
 
@@ -291,16 +293,34 @@ export default function Room() {
       if (!el) return;
       if (el.srcObject !== remoteStream) {
         el.srcObject = remoteStream;
+        el.muted = false;
+        el.volume = 1.0;
         log(`Stream attach attempt ${attempts + 1}`);
       }
       if (el.paused) {
         el.play().then(() => {
           log('play() succeeded');
+          // Check if audio is actually playing
+          setTimeout(() => {
+            if (el.muted || el.volume === 0) {
+              log('Audio appears muted — showing unmute button');
+              setAudioMuted(true);
+            } else {
+              setAudioMuted(false);
+            }
+          }, 500);
           clearInterval(streamRetryRef.current);
         }).catch(e => {
-          log(`play() failed: ${e.name}`);
+          log(`play() failed: ${e.name} — showing unmute button`);
+          setAudioMuted(true);
         });
       } else {
+        // Video is playing — verify audio isn't muted
+        if (el.muted) {
+          el.muted = false;
+          el.volume = 1.0;
+          log('Forced unmute on playing video');
+        }
         log(`Video playing on attempt ${attempts + 1}`);
         clearInterval(streamRetryRef.current);
       }
@@ -318,6 +338,11 @@ export default function Room() {
     const local = localStreamRef.current;
     if (local && remoteStream.id === local.id) {
       log('Rejected: echo of local stream');
+      return;
+    }
+    // Deduplicate — PeerJS sometimes fires twice with the same stream
+    if (remoteStreamRef.current?.id === remoteStream.id) {
+      log('Deduplicated: same stream already attached');
       return;
     }
 
@@ -488,6 +513,17 @@ export default function Room() {
     };
   }, []);
 
+  const tapToUnmute = () => {
+    const el = remoteVideoRef.current;
+    if (!el) return;
+    el.muted = false;
+    el.volume = 1.0;
+    el.play().then(() => {
+      setAudioMuted(false);
+      log('Unmuted by user tap');
+    }).catch(e => log(`tapToUnmute play() failed: ${e.name}`));
+  };
+
   const copyInviteLink = async () => {
     try { await navigator.clipboard.writeText(inviteLink); }
     catch {
@@ -604,6 +640,20 @@ export default function Room() {
                 <div className="video-cam-off-overlay">
                   <div className="video-placeholder__icon">🚫</div>
                   <div className="video-placeholder__text">Camera off</div>
+                </div>
+              )}
+              {/* Tap to unmute — shown when mobile browser blocks audio autoplay */}
+              {connected && audioMuted && (
+                <div className="video-unmute-overlay" onClick={tapToUnmute}>
+                  <div style={{ fontSize: '2rem' }}>🔇</div>
+                  <div style={{
+                    background: 'var(--pink)', color: 'white',
+                    padding: '8px 20px', borderRadius: 20,
+                    fontSize: '0.85rem', fontWeight: 700, fontFamily: 'var(--font-body)',
+                    marginTop: 8,
+                  }}>
+                    Tap to hear audio
+                  </div>
                 </div>
               )}
               {connected && (

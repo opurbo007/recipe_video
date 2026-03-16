@@ -956,6 +956,25 @@ button { cursor: pointer; border: none; outline: none; font-family: var(--font-b
 .video-placeholder__icon { font-size: 2.4rem; }
 .video-placeholder__text { font-size: 0.8rem; }
 
+/* Tap-to-unmute overlay */
+.video-unmute-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  cursor: pointer;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* Friend camera-off overlay */
 .video-cam-off-overlay {
   position: absolute;
