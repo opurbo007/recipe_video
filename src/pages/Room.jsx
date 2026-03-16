@@ -18,39 +18,96 @@ function classifyError(err) {
 }
 
 /* ─── Best available media stream ─────────────────────────────────────────── */
+/*
+  WHY SEPARATE REQUESTS:
+  iOS Safari only shows ONE permission prompt per getUserMedia() call.
+  Requesting { video: true, audio: true } together shows only the camera
+  prompt — the microphone is silently ignored or denied.
+
+  Fix: request audio first (one prompt), then video (second prompt),
+  then merge both tracks into a single MediaStream.
+  If either fails, we still join with whatever we got.
+*/
 async function getBestStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    return { stream: null, mode: 'blocked', warning: 'Camera/microphone requires HTTPS. Open the site over https://' };
+    return {
+      stream: null, mode: 'blocked',
+      warning: 'Camera/microphone requires HTTPS. Open the site over https://',
+    };
   }
-  let lastErr = null;
 
-  // 1) video + audio
+  let audioStream = null;
+  let videoStream = null;
+  let audioWarning = '';
+  let videoWarning = '';
+
+  // ── Step 1: Request MICROPHONE first (own prompt on iOS) ──
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    return { stream, mode: 'video+audio', warning: '' };
-  } catch (e) { lastErr = e; }
+    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (e) {
+    const k = classifyError(e);
+    if (k === 'permission') {
+      audioWarning = 'Microphone was denied.';
+    } else if (k === 'in-use') {
+      audioWarning = 'Microphone is in use by another app.';
+    } else {
+      audioWarning = 'No microphone found.';
+    }
+  }
 
-  const k1 = classifyError(lastErr);
-  if (k1 === 'permission') return { stream: null, mode: 'blocked', warning: 'Camera & microphone access was denied. Tap the 🔒 icon in the address bar, set both to Allow, then tap Retry.' };
-  if (k1 === 'in-use')     return { stream: null, mode: 'blocked', warning: 'Camera is in use by another app. Close it then tap Retry.' };
-
-  // 2) audio only
+  // ── Step 2: Request CAMERA second (own prompt on iOS) ──
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-    return { stream, mode: 'audio-only', warning: 'No camera found — joining with audio only.' };
-  } catch (e) { lastErr = e; }
+    videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  } catch (e) {
+    const k = classifyError(e);
+    if (k === 'permission') {
+      videoWarning = 'Camera was denied.';
+    } else if (k === 'in-use') {
+      videoWarning = 'Camera is in use by another app.';
+    } else {
+      videoWarning = 'No camera found.';
+    }
+  }
 
-  const k2 = classifyError(lastErr);
-  if (k2 === 'permission') return { stream: null, mode: 'blocked', warning: 'Microphone access was denied. Tap the 🔒 icon, set Microphone to Allow, then tap Retry.' };
+  // ── Step 3: Merge into one stream ──
+  const hasAudio = audioStream && audioStream.getAudioTracks().length > 0;
+  const hasVideo = videoStream && videoStream.getVideoTracks().length > 0;
 
-  // 3) silent fallback so PeerJS can still connect
-  try {
-    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-    const dest = ctx.createMediaStreamDestination();
-    return { stream: dest.stream, mode: 'no-device', ctx, warning: 'No camera or microphone detected.' };
-  } catch (_) {}
+  if (!hasAudio && !hasVideo) {
+    // Nothing at all — try a silent AudioContext fallback
+    try {
+      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = ctx.createMediaStreamDestination();
+      const bothDenied = audioWarning.includes('denied') && videoWarning.includes('denied');
+      return {
+        stream: dest.stream, mode: 'no-device', ctx,
+        warning: bothDenied
+          ? 'Camera & microphone were denied. Tap the 🔒 icon in the address bar, set both to Allow, then tap Retry.'
+          : 'No camera or microphone detected on this device.',
+      };
+    } catch (_) {}
+    return { stream: null, mode: 'error', warning: 'Could not access any media device.' };
+  }
 
-  return { stream: null, mode: 'error', warning: 'Could not access any media device.' };
+  // Build merged stream from whatever we got
+  const merged = new MediaStream();
+  if (hasAudio) audioStream.getAudioTracks().forEach(t => merged.addTrack(t));
+  if (hasVideo) videoStream.getVideoTracks().forEach(t => merged.addTrack(t));
+
+  // Determine mode and any partial warning
+  let mode = 'video+audio';
+  let warning = '';
+
+  if (hasAudio && !hasVideo) {
+    mode = 'audio-only';
+    warning = videoWarning ? `${videoWarning} Joining with audio only.` : 'No camera — joining with audio only.';
+  } else if (hasVideo && !hasAudio) {
+    mode = 'video-only';
+    warning = audioWarning ? `${audioWarning} Joining with video only (no mic).` : 'No microphone — joining with video only.';
+  }
+  // both present → mode stays 'video+audio', warning stays ''
+
+  return { stream: merged, mode, warning };
 }
 
 /* ─── Recipe side panel ───────────────────────────────────────────────────── */
@@ -380,7 +437,7 @@ export default function Room() {
     navigate(-1);
   };
 
-  const hasLocalVideo = mediaMode === 'video+audio';
+  const hasLocalVideo = mediaMode === 'video+audio' || mediaMode === 'video-only';
 
   /* ── Show lobby until the user taps Join ── */
   if (phase === 'lobby') {
