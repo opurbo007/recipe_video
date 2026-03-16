@@ -331,75 +331,94 @@ export default function Room() {
     }, 500);
   }, [log]);
 
-  const onRemoteStream = useCallback((remoteStream) => {
-    log(`onRemoteStream fired — id: ${remoteStream.id}, tracks: ${remoteStream.getTracks().length}`);
+  /* ── Pending stream queue — holds stream until ICE confirms connection ── */
+  const pendingStreamRef = useRef(null);
 
-    // Reject exact echo
-    const local = localStreamRef.current;
-    if (local && remoteStream.id === local.id) {
-      log('Rejected: echo of local stream');
-      return;
-    }
-    // Deduplicate — PeerJS sometimes fires twice with the same stream
-    if (remoteStreamRef.current?.id === remoteStream.id) {
-      log('Deduplicated: same stream already attached');
-      return;
-    }
-
-    log(`Audio tracks: ${remoteStream.getAudioTracks().length}, Video tracks: ${remoteStream.getVideoTracks().length}`);
-
-    remoteStreamRef.current = remoteStream;
-    startStreamRetry(remoteStream);
+  /* Attach the remote stream now that ICE is confirmed connected */
+  const flushPendingStream = useCallback(() => {
+    const stream = pendingStreamRef.current;
+    if (!stream) return;
+    if (remoteStreamRef.current?.id === stream.id) return; // already attached
+    log(`Flushing queued stream — id: ${stream.id}`);
+    remoteStreamRef.current = stream;
+    pendingStreamRef.current = null;
+    startStreamRetry(stream);
     setConnected(true);
     setWaiting(false);
     setConnStatus('');
-    setIceState('');
   }, [log, startStreamRetry]);
+
+  const onRemoteStream = useCallback((remoteStream) => {
+    log(`onRemoteStream fired — id: ${remoteStream.id}, tracks: ${remoteStream.getTracks().length}`);
+
+    // Reject echo of our own stream
+    const local = localStreamRef.current;
+    if (local && remoteStream.id === local.id) { log('Rejected: echo'); return; }
+    // Deduplicate
+    if (remoteStreamRef.current?.id === remoteStream.id) { log('Deduplicated'); return; }
+    if (pendingStreamRef.current?.id === remoteStream.id) { log('Already queued'); return; }
+
+    log(`Audio: ${remoteStream.getAudioTracks().length}, Video: ${remoteStream.getVideoTracks().length}`);
+
+    // Queue the stream — only attach once ICE confirms a real connection
+    // This prevents showing a blank/local stream before P2P is established
+    pendingStreamRef.current = remoteStream;
+    log('Stream queued — waiting for ICE connected state');
+  }, [log]);
 
   const monitorIce = useCallback((call) => {
     const pc = call?.peerConnection;
-    if (!pc) { log('No peerConnection on call'); return; }
+    if (!pc) { log('No peerConnection'); return; }
     let disconnectTimer = null;
 
     const update = () => {
       const s = pc.iceConnectionState;
       const g = pc.iceGatheringState;
-      log(`ICE connection: ${s} | gathering: ${g}`);
+      log(`ICE: ${s} | gathering: ${g}`);
       clearTimeout(disconnectTimer);
+
+      if (s === 'connected' || s === 'completed') {
+        setIceState('');
+        log('ICE connected — flushing pending stream');
+        flushPendingStream(); // ← attach stream now that we have a real connection
+        return;
+      }
       if (s === 'disconnected') {
         disconnectTimer = setTimeout(() => {
           if (pc.iceConnectionState === 'disconnected') {
             setIceState('disconnected');
-            try { pc.restartIce(); log('ICE restart triggered'); } catch (_) {}
+            try { pc.restartIce(); log('ICE restart'); } catch (_) {}
           }
         }, 4000);
         return;
       }
       if (s === 'failed') {
         setIceState('failed');
-        log('ICE FAILED — trying ICE restart');
+        log('ICE FAILED — restarting');
         try { pc.restartIce(); } catch (_) {}
         return;
       }
-      setIceState(s === 'connected' || s === 'completed' ? '' : s);
+      setIceState(s === 'new' || s === 'checking' ? 'checking' : s);
     };
 
     pc.oniceconnectionstatechange = update;
-    pc.onicegatheringstatechange  = update;
-    pc.onconnectionstatechange    = () => log(`Connection state: ${pc.connectionState}`);
-    pc.onsignalingstatechange     = () => log(`Signaling state: ${pc.signalingState}`);
-
-    // Log each ICE candidate type gathered
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        log(`ICE candidate: ${e.candidate.type} / ${e.candidate.protocol}`);
-      } else {
-        log('ICE gathering complete');
+    pc.onicegatheringstatechange  = () => log(`Gathering: ${pc.iceGatheringState}`);
+    pc.onconnectionstatechange    = () => {
+      log(`Connection state: ${pc.connectionState}`);
+      // connectionState 'connected' is more reliable on some browsers
+      if (pc.connectionState === 'connected') {
+        setIceState('');
+        flushPendingStream();
       }
+    };
+    pc.onsignalingstatechange = () => log(`Signaling: ${pc.signalingState}`);
+    pc.onicecandidate = e => {
+      if (e.candidate) log(`Candidate: ${e.candidate.type} / ${e.candidate.protocol}`);
+      else log('Gathering complete');
     };
 
     update();
-  }, [log]);
+  }, [log, flushPendingStream]);
 
   const startCall = useCallback(({ stream, mode, warning }) => {
     localStreamRef.current = stream;
@@ -433,6 +452,7 @@ export default function Room() {
     const onCallClose = () => {
       log('Call closed');
       clearInterval(streamRetryRef.current);
+      pendingStreamRef.current = null;
       remoteStreamRef.current = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setConnected(false);
