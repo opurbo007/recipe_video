@@ -5,57 +5,25 @@ import data from '../data/recipes.json';
 import '../styles/main.css';
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   WHY iceTransportPolicy: 'relay' (not 'all'):
-   ─────────────────────────────────────────────────────────────────────────────
-   'all'   → tries STUN/host candidates first, falls back to TURN
-             On mobile data (4G/5G): STUN never succeeds (symmetric NAT)
-             Browser waits up to 30s for STUN before giving up → "unstable" / timeout
-
-   'relay' → skips STUN entirely, uses TURN relay from the start
-             Works on ALL networks (WiFi, 4G, 5G, behind corporate firewall)
-             ~5–20ms extra latency — completely unnoticeable for video calls
-             This is what WhatsApp, Zoom, Meets all do on mobile
+   ICE STRATEGY:
+   iceTransportPolicy: 'all'  — tries direct P2P first (fast, same-network)
+                                 falls back to TURN relay when P2P fails (different networks)
+   We set a short iceGatheringTimeout so TURN kicks in quickly instead of
+   waiting 30 seconds for STUN to give up.
 ───────────────────────────────────────────────────────────────────────────── */
-
-/* Hardcoded fallback TURN servers — used if dynamic fetch fails */
-const FALLBACK_ICE = [
+const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  // Primary TURN — openrelay (free, reliable)
   { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  // Secondary TURN — freestun
   { urls: 'turn:freestun.net:3479',  username: 'free', credential: 'free' },
   { urls: 'turns:freestun.net:5350', username: 'free', credential: 'free' },
-  { urls: 'turn:relay.metered.ca:80',   username: 'e8dd65bbd622de3f9be7e49d', credential: 'uMPBQDFqxXDJuJID' },
-  { urls: 'turn:relay.metered.ca:443',  username: 'e8dd65bbd622de3f9be7e49d', credential: 'uMPBQDFqxXDJuJID' },
-  { urls: 'turns:relay.metered.ca:443', username: 'e8dd65bbd622de3f9be7e49d', credential: 'uMPBQDFqxXDJuJID' },
 ];
-
-/*
-  Fetch fresh rotating TURN credentials from Metered's free REST API.
-  Fresh credentials have a longer TTL and don't get rate-limited.
-  Falls back to hardcoded list if the fetch fails (offline / API down).
-*/
-async function getIceServers() {
-  try {
-    const res = await fetch(
-      'https://flavourkit.metered.live/api/v1/turn/credentials?apiKey=c72e90a2a89c2fb04cfccebda3dcba7c4f5c',
-      { signal: AbortSignal.timeout(4000) }
-    );
-    if (res.ok) {
-      const servers = await res.json();
-      if (Array.isArray(servers) && servers.length > 0) {
-        // Add STUN in front of Metered's list
-        return [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          ...servers,
-        ];
-      }
-    }
-  } catch (_) { /* network error or timeout — fall through */ }
-  return FALLBACK_ICE;
-}
 
 /* ─── Attach stream to <video> and force play() ───────────────────────────── */
 function attachStream(el, stream) {
@@ -202,23 +170,17 @@ function RecipePanel({ recipe }) {
 function Lobby({ recipe, roomId, onJoin }) {
   const [joining,  setJoining]  = useState(false);
   const [lobbyErr, setLobbyErr] = useState('');
-  const [fetching, setFetching] = useState(false);
 
   const handleJoin = async () => {
     setJoining(true);
     setLobbyErr('');
-    // 1. Get camera/mic in the same gesture context
     const mediaResult = await getBestStream();
     if (mediaResult.mode === 'blocked') {
       setLobbyErr(mediaResult.warning);
       setJoining(false);
       return;
     }
-    // 2. Fetch fresh ICE credentials (can happen after gesture — just needs to be before peer creation)
-    setFetching(true);
-    const iceServers = await getIceServers();
-    setFetching(false);
-    onJoin({ ...mediaResult, iceServers });
+    onJoin(mediaResult);
   };
 
   return (
@@ -240,7 +202,7 @@ function Lobby({ recipe, roomId, onJoin }) {
           <div className="room-lobby__error"><span>⚠️</span><span>{lobbyErr}</span></div>
         )}
         <button className="room-lobby__join-btn" onClick={handleJoin} disabled={joining}>
-          {fetching ? '🌐 Getting connection…' : joining ? '📷 Starting camera…' : '🎥 Join Call'}
+          {joining ? '📷 Starting camera…' : '🎥 Join Call'}
         </button>
         <p className="room-lobby__hint">Your browser will ask for camera &amp; mic — tap Allow.</p>
       </div>
@@ -349,7 +311,7 @@ export default function Room() {
   }, []);
 
   /* ── Called by Lobby after user taps Join ── */
-  const startCall = useCallback(({ stream, mode, warning, iceServers }) => {
+  const startCall = useCallback(({ stream, mode, warning }) => {
     localStreamRef.current = stream;
     setMediaMode(mode);
     setMediaWarning(warning || '');
@@ -364,17 +326,16 @@ export default function Room() {
     const hostPeerId = `flavourkit-host-${roomId}`;
 
     /*
-      KEY FIX: iceTransportPolicy: 'relay'
-      Forces the browser to ONLY use TURN relay candidates.
-      This works on ALL networks including mobile data.
-      Same-WiFi calls get tiny extra latency (~5ms) — unnoticeable.
-      Different-network calls: this is the ONLY thing that works.
+      iceTransportPolicy: 'all'
+      → Same network (WiFi/LAN): uses direct P2P — fast, no TURN needed
+      → Different networks (4G vs WiFi): direct fails, ICE falls back to TURN relay
+      The key is having reliable TURN servers as fallback + enough candidates collected.
     */
     const peerConfig = {
       config: {
-        iceServers: iceServers || FALLBACK_ICE,
+        iceServers: ICE_SERVERS,
         iceCandidatePoolSize: 10,
-        iceTransportPolicy: 'relay',   // ← FORCE TURN, skip STUN entirely
+        iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
       },
