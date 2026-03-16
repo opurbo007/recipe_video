@@ -317,9 +317,9 @@ if (el) {
   if (e.candidate) {
     const candJSON = e.candidate.toJSON();
     socketRef.current?.emit('ice-candidate', {
-      targetId: remoteIdRef.current,
-      candidate: candJSON,
-    });
+  targetId: remoteIdRef.current,
+  candidate: e.candidate.toJSON(),
+});
     log(`Sent ICE candidate: ${candJSON.type}`);
   } else {
     log('ICE gathering complete');
