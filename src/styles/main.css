@@ -958,35 +958,30 @@ button { cursor: pointer; border: none; outline: none; font-family: var(--font-b
 .video-placeholder__icon { font-size: 2.4rem; }
 .video-placeholder__text { font-size: 0.8rem; }
 
-/* Tap-to-unmute overlay */
-.video-unmute-overlay {
+/* Tap-to-unmute banner (last resort fallback — shown bottom of video) */
+.video-unmute-banner {
   position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.65);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;               /* above video, status bar, everything */
-  cursor: pointer;
-  touch-action: manipulation; /* prevents 300ms tap delay on mobile */
-  /* reset button styles */
+  bottom: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--pink);
+  color: white;
   border: none;
-  outline: none;
-  padding: 0;
-  margin: 0;
-  width: 100%;
+  border-radius: 20px;
+  padding: 7px 18px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: var(--font-body);
+  cursor: pointer;
+  touch-action: manipulation;
+  z-index: 10;
+  white-space: nowrap;
   animation: fadeIn 0.3s ease;
-  border-radius: 0;
-}
-
-.video-unmute-overlay:active {
-  background: rgba(0,0,0,0.5);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* Video element must not intercept pointer events when overlay is active */

@@ -284,19 +284,43 @@ export default function Room() {
           log(`Added remote track: ${t.kind}`);
         }
       });
-      // Attach as soon as we have at least one track
+
       if (remoteStream.getTracks().length > 0) {
         const el = remoteVideoRef.current;
         if (el) {
-          attachStream(el, remoteStream);
-          el.onplaying = () => {
-            log('Remote video playing ✓');
-            setAudioMuted(false);
+          el.srcObject = remoteStream;
+
+          /*
+            AUTOPLAY TRICK:
+            All browsers allow autoplay when muted=true.
+            Once playback starts we immediately unmute — this is a
+            programmatic unmute on a playing element which browsers allow.
+            The user already gave a gesture (tapping "Join Call") so
+            this is within the same gesture context session.
+          */
+          el.muted = true;
+          el.volume = 1.0;
+
+          el.play()
+            .then(() => {
+              log('Playback started (muted) — unmuting now');
+              el.muted = false;
+              setAudioMuted(false);
+              log('Audio unmuted ✓');
+            })
+            .catch(err => {
+              log(`play() failed even muted: ${err.name} — ${err.message}`);
+              // Last resort: try completely silent then unmute on next user interaction
+              setAudioMuted(true);
+            });
+
+          el.onvolumechange = () => {
+            // Some browsers re-mute after a moment — catch and re-unmute
+            if (el.muted && !el.paused) {
+              log('Browser re-muted — forcing unmute');
+              el.muted = false;
+            }
           };
-          el.play().catch(() => {
-            log('Autoplay blocked — showing unmute button');
-            setAudioMuted(true);
-          });
         }
         setConnected(true);
         setWaiting(false);
@@ -554,7 +578,9 @@ export default function Room() {
     if (!el) return;
     el.muted = false;
     el.volume = 1.0;
-    el.play().then(() => { setAudioMuted(false); log('Unmuted by user'); }).catch(() => {});
+    el.play()
+      .then(() => { setAudioMuted(false); log('Unmuted by user tap'); })
+      .catch(e => log(`tapToUnmute failed: ${e.name}`));
   };
 
   const endCall = () => {
@@ -649,19 +675,11 @@ export default function Room() {
               )}
               {connected && audioMuted && (
                 <button
-                  className="video-unmute-overlay"
+                  className="video-unmute-banner"
                   onClick={tapToUnmute}
                   type="button"
-                  aria-label="Tap to hear audio"
                 >
-                  <div style={{ fontSize: '2rem', pointerEvents: 'none' }}>🔇</div>
-                  <div style={{
-                    background: 'var(--pink)', color: 'white',
-                    padding: '8px 20px', borderRadius: 20,
-                    fontSize: '0.85rem', fontWeight: 700,
-                    fontFamily: 'var(--font-body)', marginTop: 8,
-                    pointerEvents: 'none',
-                  }}>Tap to hear audio</div>
+                  🔇 Tap anywhere to hear audio
                 </button>
               )}
               {connected && (
