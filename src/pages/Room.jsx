@@ -4,9 +4,11 @@ import Peer from 'peerjs';
 import data from '../data/recipes.json';
 import '../styles/main.css';
 
-
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
 async function getBestStream() {
-  if (!navigator.mediaDevices?.getUserMedia) return { stream: null, mode: 'blocked', warning: 'Camera/mic requires HTTPS.' };
+  if (!navigator.mediaDevices?.getUserMedia)
+    return { stream: null, mode: 'blocked', warning: 'Camera/mic requires HTTPS.' };
+
   let audioStream = null, videoStream = null;
   let audioWarn = '', videoWarn = '';
 
@@ -34,6 +36,110 @@ function attachStream(el, stream) {
   el.play().catch(() => {});
 }
 
+/* ─── Lobby ────────────────────────────────────────────────────────────────── */
+function Lobby({ recipe, roomId, onJoin }) {
+  const [joining, setJoining] = useState(false);
+  const [lobbyErr, setLobbyErr] = useState('');
+
+  const handleJoin = async () => {
+    setJoining(true);
+    setLobbyErr('');
+    try {
+      await onJoin();
+    } catch(e) {
+      setLobbyErr(e.message || 'Failed to start call');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  return (
+    <div className="room-lobby">
+      <div className="room-lobby__card">
+        <div className="room-lobby__logo">Flavour<span>Kit</span> · Live</div>
+        {recipe ? (
+          <div className="room-lobby__recipe">
+            <img src={recipe.image} alt={recipe.title} className="room-lobby__recipe-img" />
+            <p className="room-lobby__recipe-name">{recipe.title}</p>
+          </div>
+        ) : <div className="room-lobby__recipe-empty">🍳</div>}
+        <h2 className="room-lobby__title">Ready to cook together?</h2>
+        <p className="room-lobby__subtitle">
+          Room <code className="room-lobby__code">{roomId}</code><br />
+          Allow camera &amp; microphone when asked.
+        </p>
+        {lobbyErr && <div className="room-lobby__error"><span>⚠️</span> {lobbyErr}</div>}
+        <button className="room-lobby__join-btn" onClick={handleJoin} disabled={joining}>
+          {joining ? '📷 Starting camera…' : '🎥 Join Call'}
+        </button>
+        <p className="room-lobby__hint">Tap Join — your browser will ask for permission once.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Recipe Panel ────────────────────────────────────────────────────────── */
+function RecipePanel({ recipe }) {
+  const [tab, setTab] = useState('ingredients');
+  const [checked, setChecked] = useState({});
+
+  if (!recipe) return (
+    <aside className="room-recipe-panel room-recipe-panel--empty">
+      <div className="room-recipe-panel__empty-icon">🍽️</div>
+      <p>No recipe loaded.<br />Open a recipe and click<br /><strong>Make With Friend</strong>.</p>
+    </aside>
+  );
+
+  const toggle = i => setChecked(p => ({ ...p, [i]: !p[i] }));
+  const doneCount = Object.values(checked).filter(Boolean).length;
+
+  return (
+    <aside className="room-recipe-panel">
+      <div className="room-recipe-panel__header">
+        <img src={recipe.image} alt={recipe.title} className="room-recipe-panel__img" />
+        <div className="room-recipe-panel__meta-row">
+          <span>⏱ {recipe.time}</span>
+          <span>👤 {recipe.servings}</span>
+          <span>📊 {recipe.difficulty}</span>
+        </div>
+        <h2 className="room-recipe-panel__title">{recipe.title}</h2>
+      </div>
+      <div className="room-recipe-panel__tabs">
+        <button className={`room-tab ${tab === 'ingredients' ? 'active' : ''}`} onClick={() => setTab('ingredients')}>
+          Ingredients <span className="room-tab__count">{recipe.ingredients.length}</span>
+        </button>
+        <button className={`room-tab ${tab === 'steps' ? 'active' : ''}`} onClick={() => setTab('steps')}>
+          Steps <span className={`room-tab__count ${doneCount > 0 ? 'room-tab__count--done' : ''}`}>
+            {doneCount > 0 ? `${doneCount}/${recipe.instructions.length}` : recipe.instructions.length}
+          </span>
+        </button>
+      </div>
+      <div className="room-recipe-panel__content">
+        {tab === 'ingredients' && (
+          <ul className="room-ingredients">
+            {recipe.ingredients.map((item, i) => <li key={i} className="room-ingredient-item">{item}</li>)}
+          </ul>
+        )}
+        {tab === 'steps' && (
+          <>
+            {doneCount > 0 && <div className="room-progress"><div className="room-progress__bar" style={{ width: `${(doneCount / recipe.instructions.length) * 100}%` }} /></div>}
+            <p className="room-steps-hint">Tap a step to mark it done ✓</p>
+            <ol className="room-steps">
+              {recipe.instructions.map((step, i) => (
+                <li key={i} className={`room-step ${checked[i] ? 'done' : ''}`} onClick={() => toggle(i)}>
+                  <span className="room-step__num">{checked[i] ? '✓' : i + 1}</span>
+                  <p className="room-step__text">{step}</p>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/* ─── Main Room ───────────────────────────────────────────────────────────── */
 export default function Room() {
   const { id: roomId } = useParams();
   const [searchParams] = useSearchParams();
@@ -58,28 +164,27 @@ export default function Room() {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [audioMuted, setAudioMuted] = useState(true);
-  const [debugLogs, setDebugLogs] = useState([]);
 
-  const log = useCallback((msg) => {
-    const ts = new Date().toLocaleTimeString();
-    console.log(`[Room] ${msg}`);
-    setDebugLogs(p => [`[${ts}] ${msg}`, ...p].slice(0, 80));
-  }, []);
+  /* ─── Logging ──────────────────────────────────────────────────────────── */
+  const log = useCallback((msg) => console.log(`[Room] ${msg}`), []);
 
+  /* ─── Start Call ───────────────────────────────────────────────────────── */
   const startCall = useCallback(async () => {
     const { stream, mode, warning } = await getBestStream();
     localStreamRef.current = stream;
     setMediaMode(mode);
     setMediaWarning(warning || '');
     setPhase('call');
-    if (stream.getVideoTracks().length > 0) attachStream(localVideoRef.current, stream);
 
-    const peer = new Peer(roomId, { debug: 2 }); // roomId as host peer
+    if (stream.getVideoTracks().length > 0)
+      attachStream(localVideoRef.current, stream);
+
+    const peer = new Peer(roomId, { debug: 2 });
     peerRef.current = peer;
 
-    peer.on('open', () => log(`PeerJS ready: ${peer.id}`));
+    peer.on('open', id => log(`PeerJS ready: ${id}`));
 
-    peer.on('call', (call) => {
+    peer.on('call', call => {
       log('Incoming call received');
       call.answer(stream);
       call.on('stream', remoteStream => {
@@ -91,7 +196,7 @@ export default function Room() {
       callRef.current = call;
     });
 
-    // Auto-call host if not self
+    // Auto-call other peer after small delay
     setTimeout(() => {
       if (peer.id !== roomId) {
         const call = peer.call(roomId, stream);
@@ -104,7 +209,6 @@ export default function Room() {
       }
     }, 500);
   }, [roomId, log]);
-
 
   const toggleMic = () => {
     if (!localStreamRef.current) return;
@@ -143,10 +247,13 @@ export default function Room() {
     navigate(-1);
   };
 
-   useEffect(() => () => endCall(), []);
+  useEffect(() => () => endCall(), []);
+
   const hasLocalVideo = mediaMode === 'video+audio' || mediaMode === 'video-only';
 
- if (phase === 'lobby') { return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />; } const iceColors = { checking: '#f59e0b', disconnected: '#f97316', failed: '#ef4444' };
+  if (phase === 'lobby') {
+    return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />;
+  }
 
   return (
     <div className="room-page">
@@ -154,10 +261,7 @@ export default function Room() {
         <div className="room-nav__logo">Flavour<span>Kit</span> · Live</div>
         <div className="room-nav__center">
           <div className={`status-dot ${waiting ? 'waiting' : ''}`} />
-          <span className="status-text">
-            {connected ? '🎉 Connected!'
-              : connStatus || (waiting ? 'Waiting for friend…' : 'Connecting…')}
-          </span>
+          <span className="status-text">{connected ? '🎉 Connected!' : waiting ? 'Waiting for friend…' : 'Connecting…'}</span>
         </div>
         <div className="room-nav__id">{roomId}</div>
       </nav>
@@ -166,20 +270,8 @@ export default function Room() {
         <div className="room-call-col">
           {mediaWarning && (
             <div className="room-media-warning">
-              <span>⚠️</span>
-              <span style={{ flex: 1 }}>{mediaWarning}</span>
+              <span>⚠️</span> {mediaWarning}
               <button className="room-retry-btn" onClick={() => setPhase('lobby')}>Retry</button>
-            </div>
-          )}
-          {iceState && iceColors[iceState] && (
-            <div style={{
-              background: 'rgba(0,0,0,0.5)', border: `1px solid ${iceColors[iceState]}`,
-              borderRadius: 8, padding: '8px 14px', fontSize: '0.8rem',
-              color: iceColors[iceState], marginBottom: 8,
-            }}>
-              {iceState === 'checking'     && '🔄 Establishing connection…'}
-              {iceState === 'disconnected' && '⚠️ Link unstable…'}
-              {iceState === 'failed'       && '❌ Failed — tap End Call and rejoin'}
             </div>
           )}
 
@@ -188,20 +280,7 @@ export default function Room() {
             <div className="video-container">
               <video ref={localVideoRef} autoPlay muted playsInline className="room-video-el"
                 style={{ transform: 'scaleX(-1)', display: (hasLocalVideo && camOn) ? 'block' : 'none' }} />
-              {(!hasLocalVideo || !camOn) && (
-                <div className="video-placeholder">
-                  <div className="video-placeholder__icon">
-                    {!hasLocalVideo ? (mediaMode === 'audio-only' ? '🎙️' : '📵') : '🚫'}
-                  </div>
-                  <div className="video-placeholder__text">
-                    {!hasLocalVideo ? (mediaMode === 'audio-only' ? 'Audio only' : 'No camera') : 'Camera off'}
-                  </div>
-                </div>
-              )}
-              <div className="video-status-bar">
-                <span className={`vstatus-icon ${!micOn ? 'vstatus-icon--off' : ''}`}>{micOn ? '🎙️' : '🔇'}</span>
-                {hasLocalVideo && <span className={`vstatus-icon ${!camOn ? 'vstatus-icon--off' : ''}`}>{camOn ? '📷' : '🚫'}</span>}
-              </div>
+              {(!hasLocalVideo || !camOn) && <div className="video-placeholder">{!hasLocalVideo ? '📵' : '🚫'}</div>}
               <span className="video-container__label">You</span>
             </div>
 
@@ -209,61 +288,23 @@ export default function Room() {
             <div className="video-container">
               <video ref={remoteVideoRef} autoPlay playsInline className="room-video-el"
                 style={{ display: connected ? 'block' : 'none' }} />
-              {!connected && (
-                <div className="video-placeholder">
-                  <div className="video-placeholder__icon">👨‍🍳</div>
-                  <div className="video-placeholder__text">
-                    {waiting ? 'Waiting for friend…' : 'Connecting…'}
-                  </div>
-                </div>
-              )}
-              {connected && remoteCamOff && (
-                <div className="video-cam-off-overlay">
-                  <div className="video-placeholder__icon">🚫</div>
-                  <div className="video-placeholder__text">Camera off</div>
-                </div>
-              )}
-              {connected && audioMuted && (
-                <button
-                  className="video-unmute-banner"
-                  onClick={tapToUnmute}
-                  type="button"
-                >
-                  🔇 Tap anywhere to hear audio
-                </button>
-              )}
-              {connected && (
-                <div className="video-status-bar">
-                  <span className={`vstatus-icon ${remoteMicOff ? 'vstatus-icon--off' : ''}`}>{remoteMicOff ? '🔇' : '🎙️'}</span>
-                  <span className={`vstatus-icon ${remoteCamOff ? 'vstatus-icon--off' : ''}`}>{remoteCamOff ? '🚫' : '📷'}</span>
-                </div>
-              )}
-              {connected && <span className="video-container__label">Friend 🧑‍🍳</span>}
+              {!connected && <div className="video-placeholder">👨‍🍳 Waiting for friend…</div>}
+              {connected && audioMuted &&
+                <button className="video-unmute-banner" onClick={tapToUnmute}>🔇 Tap to unmute</button>}
+              <span className="video-container__label">Friend 🧑‍🍳</span>
             </div>
           </div>
 
           <div className="room-controls">
-            <button className={`media-toggle-btn ${!micOn ? 'off' : ''}`} onClick={toggleMic}>
-              {micOn ? '🎙️' : '🔇'} <span>{micOn ? 'Mute' : 'Unmute'}</span>
-            </button>
-            {hasLocalVideo && (
-              <button className={`media-toggle-btn ${!camOn ? 'off' : ''}`} onClick={toggleCam}>
-                {camOn ? '📷' : '🚫'} <span>{camOn ? 'Cam off' : 'Cam on'}</span>
-              </button>
-            )}
-            <div className="room-controls-divider" />
-            <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copyInviteLink}>
-              {copied ? '✓ Copied!' : '🔗 Copy Link'}
-            </button>
-            <div className="room-link-pill" title={inviteLink}>{inviteLink}</div>
-            <button className="end-btn" onClick={endCall}>✕ End</button>
+            <button onClick={toggleMic}>{micOn ? '🎙️ Mute' : '🔇 Unmute'}</button>
+            {hasLocalVideo && <button onClick={toggleCam}>{camOn ? '📷 Cam off' : '🚫 Cam on'}</button>}
+            <button onClick={copyInviteLink}>{copied ? '✓ Copied!' : '🔗 Copy Link'}</button>
+            <button onClick={endCall}>✕ End</button>
           </div>
         </div>
 
         <RecipePanel recipe={recipe} />
       </div>
-
-      
     </div>
   );
 }
