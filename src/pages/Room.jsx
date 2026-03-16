@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import Peer from 'peerjs';
 import data from '../data/recipes.json';
+import '../styles/main.css';
 
 /* ─── Error classifier ────────────────────────────────────────────────────── */
 function classifyError(err) {
