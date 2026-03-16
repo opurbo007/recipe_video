@@ -24,23 +24,14 @@ const ICE_SERVERS = [
   { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
 ];
 
-/* ─── Attach stream + force play with retry ───────────────────────────────── */
-function attachStream(el, stream, retries = 0) {
-  if (!el || !stream) return;
-  if (el.srcObject === stream && !el.paused) return;
-  el.srcObject = stream;
-  el.muted = false;          // ← explicitly unmute — React/browser may set it true
-  el.volume = 1.0;           // ← ensure full volume
-  const p = el.play();
-  if (p && p.catch) {
-    p.catch(() => {
-      if (retries < 3) {
-        setTimeout(() => attachStream(el, stream, retries + 1), 300 * (retries + 1));
-      }
-    });
-  }
-}
 
+useEffect(() => {
+  if (localVideoRef.current) {
+    localVideoRef.current.muted = true;
+    localVideoRef.current.volume = 0;
+    localVideoRef.current.setAttribute("muted", "");
+  }
+}, []);
 /* ─── getUserMedia error classifier ──────────────────────────────────────── */
 function classifyError(err) {
   const name = err?.name || '';
@@ -340,7 +331,13 @@ export default function Room() {
     if (!stream) return;
     if (remoteStreamRef.current?.id === stream.id) return; // already attached
     log(`Flushing queued stream — id: ${stream.id}`);
-    remoteStreamRef.current = stream;
+
+
+if (stream.id === localStreamRef.current?.id) {
+  log('Prevented attaching local stream as remote');
+  return;
+}
+remoteStreamRef.current = stream;
     pendingStreamRef.current = null;
     startStreamRetry(stream);
     setConnected(true);
@@ -352,8 +349,18 @@ export default function Room() {
     log(`onRemoteStream fired — id: ${remoteStream.id}, tracks: ${remoteStream.getTracks().length}`);
 
     // Reject echo of our own stream
-    const local = localStreamRef.current;
-    if (local && remoteStream.id === local.id) { log('Rejected: echo'); return; }
+
+const local = localStreamRef.current;
+
+if (local) {
+  const localAudio = local.getAudioTracks()[0]?.id;
+  const remoteAudio = remoteStream.getAudioTracks()[0]?.id;
+
+  if (localAudio && remoteAudio && localAudio === remoteAudio) {
+    log('Rejected: local audio echo detected');
+    return;
+  }
+}
     // Deduplicate
     if (remoteStreamRef.current?.id === remoteStream.id) { log('Deduplicated'); return; }
     if (pendingStreamRef.current?.id === remoteStream.id) { log('Already queued'); return; }
@@ -412,10 +419,16 @@ export default function Room() {
       }
     };
     pc.onsignalingstatechange = () => log(`Signaling: ${pc.signalingState}`);
-    pc.onicecandidate = e => {
-      if (e.candidate) log(`Candidate: ${e.candidate.type} / ${e.candidate.protocol}`);
-      else log('Gathering complete');
-    };
+   pc.onicecandidate = e => {
+  if (!e.candidate) {
+    log('ICE gathering complete');
+    return;
+  }
+
+  if (e.candidate.type === "relay") {
+    log("Using TURN relay server");
+  }
+};
 
     update();
   }, [log, flushPendingStream]);
@@ -430,7 +443,10 @@ export default function Room() {
     // Attach local video with retry
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (stream?.getVideoTracks().length > 0) {
-        attachStream(localVideoRef.current, stream);
+if (localVideoRef.current) {
+  localVideoRef.current.muted = true;
+  localVideoRef.current.volume = 0;
+}
         log('Local video attached');
       }
     }));
@@ -449,18 +465,25 @@ export default function Room() {
     const safeStream = stream || new MediaStream();
     log(`SafeStream tracks: ${safeStream.getTracks().length}`);
 
-    const onCallClose = () => {
-      log('Call closed');
-      clearInterval(streamRetryRef.current);
-      pendingStreamRef.current = null;
-      remoteStreamRef.current = null;
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-      setConnected(false);
-      setWaiting(true);
-      setRemoteMicOff(false);
-      setRemoteCamOff(false);
-      setIceState('');
-    };
+  const onCallClose = () => {
+
+  log('Call closed');
+
+  clearInterval(streamRetryRef.current);
+
+  pendingStreamRef.current = null;
+  remoteStreamRef.current = null;
+
+  if (remoteVideoRef.current) {
+    remoteVideoRef.current.srcObject = null;
+  }
+
+  setConnected(false);
+  setWaiting(true);
+  setRemoteMicOff(false);
+  setRemoteCamOff(false);
+  setIceState('');
+};
 
     setConnStatus('Connecting…');
     log(`Registering as host: ${hostPeerId}`);
@@ -485,44 +508,38 @@ export default function Room() {
       call.on('close',  onCallClose);
     });
 
-    hostPeer.on('error', err => {
-      log(`Host peer error: ${err.type}`);
-      if (err.type === 'unavailable-id') {
-        log('ID taken — becoming guest');
-        setConnStatus('Joining room…');
-        hostPeer.destroy();
-        const guestPeer = new Peer(peerConfig);
-        peerRef.current = guestPeer;
+  hostPeer.destroy();
 
-        guestPeer.on('open', id => {
-          log(`Guest peer open: ${id} — calling host: ${hostPeerId}`);
-          setConnStatus('Calling host…');
-          const call = guestPeer.call(hostPeerId, safeStream);
-          activeCallRef.current = call;
-          monitorIce(call);
-          call.on('stream', onRemoteStream);
-          call.on('close',  onCallClose);
+const guestPeer = new Peer(undefined, peerConfig);
+peerRef.current = guestPeer;
 
-          const tryData = (n = 0) => {
-            const conn = guestPeer.connect(hostPeerId, { reliable: true });
-            conn.on('open', () => wireDataConn(conn));
-            conn.on('error', () => {
-              log(`DataConn attempt ${n} failed`);
-              if (n < 5) setTimeout(() => tryData(n + 1), 800);
-            });
-          };
-          setTimeout(() => tryData(), 500);
-        });
+guestPeer.on('open', id => {
+  log(`Guest peer open: ${id} — calling host: ${hostPeerId}`);
 
-        guestPeer.on('error', e => {
-          log(`Guest peer error: ${e.type} — ${e.message}`);
-          setConnStatus(`Error: ${e.type}. Tap End Call and rejoin.`);
-        });
-      } else {
-        log(`Peer error: ${err.type} — ${err.message}`);
-        setConnStatus(`Error: ${err.type}. Tap End Call and rejoin.`);
-      }
+  setConnStatus('Calling host…');
+
+  const call = guestPeer.call(hostPeerId, safeStream);
+
+  activeCallRef.current = call;
+
+  monitorIce(call);
+
+  call.on('stream', onRemoteStream);
+  call.on('close', onCallClose);
+
+  const tryData = (n = 0) => {
+    const conn = guestPeer.connect(hostPeerId, { reliable: true });
+
+    conn.on('open', () => wireDataConn(conn));
+
+    conn.on('error', () => {
+      log(`DataConn attempt ${n} failed`);
+      if (n < 5) setTimeout(() => tryData(n + 1), 800);
     });
+  };
+
+  setTimeout(() => tryData(), 500);
+});
   }, [roomId, wireDataConn, monitorIce, onRemoteStream, log, startStreamRetry]);
 
   useEffect(() => {
