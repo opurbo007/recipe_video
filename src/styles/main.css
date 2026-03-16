@@ -1018,6 +1018,8 @@ button {
   z-index: 5;
   cursor: pointer;
   animation: fadeIn 0.3s ease;
+  touch-action: manipulation; /* no delay on tap */
+  z-index: 10;
 }
 
 @keyframes fadeIn {
