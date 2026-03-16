@@ -4,6 +4,36 @@ import Peer from 'peerjs';
 import data from '../data/recipes.json';
 import '../styles/main.css';
 
+/* ─── TURN / STUN servers ─────────────────────────────────────────────────────
+   Multiple providers so if one is down or rate-limited, others kick in.
+   Mobile carriers use Symmetric NAT — STUN alone never works on 4G/5G.
+   TURN relays ALL media through a server when P2P fails.
+───────────────────────────────────────────────────────────────────────────── */
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  // freestun.net — free public TURN, no account needed
+  { urls: 'turn:freestun.net:3479',  username: 'free', credential: 'free' },
+  { urls: 'turns:freestun.net:5350', username: 'free', credential: 'free' },
+  // openrelay by metered.ca — second fallback
+  { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+];
+
+/* ─── Helper: attach a stream to a <video> and force play ─────────────────────
+   autoPlay alone is NOT enough on mobile — we must call .play() explicitly
+   after setting srcObject. Without this: black screen / no audio on iOS/Android.
+───────────────────────────────────────────────────────────────────────────── */
+function attachStream(videoEl, stream) {
+  if (!videoEl || !stream) return;
+  // Avoid redundant re-attaches which can cause flickering
+  if (videoEl.srcObject === stream) return;
+  videoEl.srcObject = stream;
+  // play() returns a Promise — catch silently (browser will retry via autoPlay)
+  videoEl.play().catch(() => {});
+}
+
 /* ─── Error classifier ────────────────────────────────────────────────────── */
 function classifyError(err) {
   const name = err?.name || '';
@@ -17,95 +47,57 @@ function classifyError(err) {
   return 'unknown';
 }
 
-/* ─── Best available media stream ─────────────────────────────────────────── */
-/*
-  WHY SEPARATE REQUESTS:
-  iOS Safari only shows ONE permission prompt per getUserMedia() call.
-  Requesting { video: true, audio: true } together shows only the camera
-  prompt — the microphone is silently ignored or denied.
-
-  Fix: request audio first (one prompt), then video (second prompt),
-  then merge both tracks into a single MediaStream.
-  If either fails, we still join with whatever we got.
-*/
+/* ─── Separate mic + camera requests (iOS Safari requirement) ─────────────────
+   iOS only shows ONE system prompt per getUserMedia call.
+   { video: true, audio: true } → only camera prompt → mic silently dropped.
+   Fix: request audio first, video second, merge tracks into one stream.
+───────────────────────────────────────────────────────────────────────────── */
 async function getBestStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    return {
-      stream: null, mode: 'blocked',
-      warning: 'Camera/microphone requires HTTPS. Open the site over https://',
-    };
+    return { stream: null, mode: 'blocked', warning: 'Camera/microphone requires HTTPS.' };
   }
-
   let audioStream = null;
   let videoStream = null;
   let audioWarning = '';
   let videoWarning = '';
 
-  // ── Step 1: Request MICROPHONE first (own prompt on iOS) ──
   try {
     audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (e) {
     const k = classifyError(e);
-    if (k === 'permission') {
-      audioWarning = 'Microphone was denied.';
-    } else if (k === 'in-use') {
-      audioWarning = 'Microphone is in use by another app.';
-    } else {
-      audioWarning = 'No microphone found.';
-    }
+    audioWarning = k === 'permission' ? 'Microphone denied.' : k === 'in-use' ? 'Mic in use by another app.' : 'No microphone found.';
   }
 
-  // ── Step 2: Request CAMERA second (own prompt on iOS) ──
   try {
     videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
   } catch (e) {
     const k = classifyError(e);
-    if (k === 'permission') {
-      videoWarning = 'Camera was denied.';
-    } else if (k === 'in-use') {
-      videoWarning = 'Camera is in use by another app.';
-    } else {
-      videoWarning = 'No camera found.';
-    }
+    videoWarning = k === 'permission' ? 'Camera denied.' : k === 'in-use' ? 'Camera in use by another app.' : 'No camera found.';
   }
 
-  // ── Step 3: Merge into one stream ──
-  const hasAudio = audioStream && audioStream.getAudioTracks().length > 0;
-  const hasVideo = videoStream && videoStream.getVideoTracks().length > 0;
+  const hasAudio = !!audioStream?.getAudioTracks().length;
+  const hasVideo = !!videoStream?.getVideoTracks().length;
 
   if (!hasAudio && !hasVideo) {
-    // Nothing at all — try a silent AudioContext fallback
-    try {
-      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-      const dest = ctx.createMediaStreamDestination();
-      const bothDenied = audioWarning.includes('denied') && videoWarning.includes('denied');
-      return {
-        stream: dest.stream, mode: 'no-device', ctx,
-        warning: bothDenied
-          ? 'Camera & microphone were denied. Tap the 🔒 icon in the address bar, set both to Allow, then tap Retry.'
-          : 'No camera or microphone detected on this device.',
-      };
-    } catch (_) {}
-    return { stream: null, mode: 'error', warning: 'Could not access any media device.' };
+    const bothDenied = audioWarning.includes('denied') && videoWarning.includes('denied');
+    return {
+      stream: new MediaStream(), mode: 'no-device',
+      warning: bothDenied
+        ? 'Camera & mic denied. Tap 🔒 in address bar → set both to Allow → tap Retry.'
+        : 'No camera or microphone detected.',
+    };
   }
 
-  // Build merged stream from whatever we got
   const merged = new MediaStream();
   if (hasAudio) audioStream.getAudioTracks().forEach(t => merged.addTrack(t));
   if (hasVideo) videoStream.getVideoTracks().forEach(t => merged.addTrack(t));
 
-  // Determine mode and any partial warning
-  let mode = 'video+audio';
-  let warning = '';
-
-  if (hasAudio && !hasVideo) {
-    mode = 'audio-only';
-    warning = videoWarning ? `${videoWarning} Joining with audio only.` : 'No camera — joining with audio only.';
-  } else if (hasVideo && !hasAudio) {
-    mode = 'video-only';
-    warning = audioWarning ? `${audioWarning} Joining with video only (no mic).` : 'No microphone — joining with video only.';
-  }
-  // both present → mode stays 'video+audio', warning stays ''
+  const mode = hasAudio && hasVideo ? 'video+audio'
+             : hasAudio             ? 'audio-only'
+             :                        'video-only';
+  const warning = hasAudio && !hasVideo ? (videoWarning || 'No camera — audio only.')
+                : !hasAudio && hasVideo ? (audioWarning || 'No mic — video only.')
+                : '';
 
   return { stream: merged, mode, warning };
 }
@@ -120,16 +112,14 @@ function RecipePanel({ recipe }) {
       <p>No recipe loaded.<br />Open a recipe and click<br /><strong>Make With Friend</strong>.</p>
     </aside>
   );
-  const toggle    = (i) => setChecked(p => ({ ...p, [i]: !p[i] }));
+  const toggle    = i => setChecked(p => ({ ...p, [i]: !p[i] }));
   const doneCount = Object.values(checked).filter(Boolean).length;
   return (
     <aside className="room-recipe-panel">
       <div className="room-recipe-panel__header">
         <img src={recipe.image} alt={recipe.title} className="room-recipe-panel__img" />
         <div className="room-recipe-panel__meta-row">
-          <span>⏱ {recipe.time}</span>
-          <span>👤 {recipe.servings}</span>
-          <span>📊 {recipe.difficulty}</span>
+          <span>⏱ {recipe.time}</span><span>👤 {recipe.servings}</span><span>📊 {recipe.difficulty}</span>
         </div>
         <h2 className="room-recipe-panel__title">{recipe.title}</h2>
       </div>
@@ -138,8 +128,7 @@ function RecipePanel({ recipe }) {
           Ingredients <span className="room-tab__count">{recipe.ingredients.length}</span>
         </button>
         <button className={`room-tab ${tab === 'steps' ? 'active' : ''}`} onClick={() => setTab('steps')}>
-          Steps{' '}
-          <span className={`room-tab__count ${doneCount > 0 ? 'room-tab__count--done' : ''}`}>
+          Steps <span className={`room-tab__count ${doneCount > 0 ? 'room-tab__count--done' : ''}`}>
             {doneCount > 0 ? `${doneCount}/${recipe.instructions.length}` : recipe.instructions.length}
           </span>
         </button>
@@ -154,11 +143,7 @@ function RecipePanel({ recipe }) {
         )}
         {tab === 'steps' && (
           <>
-            {doneCount > 0 && (
-              <div className="room-progress">
-                <div className="room-progress__bar" style={{ width: `${(doneCount / recipe.instructions.length) * 100}%` }} />
-              </div>
-            )}
+            {doneCount > 0 && <div className="room-progress"><div className="room-progress__bar" style={{ width: `${(doneCount / recipe.instructions.length) * 100}%` }} /></div>}
             <p className="room-steps-hint">Tap a step to mark it done ✓</p>
             <ol className="room-steps">
               {recipe.instructions.map((step, i) => (
@@ -175,18 +160,10 @@ function RecipePanel({ recipe }) {
   );
 }
 
-/* ─── Lobby (pre-join) screen ─────────────────────────────────────────────── */
-/*
-  WHY THIS EXISTS:
-  iOS Safari and Android Chrome enforce that getUserMedia() MUST be called
-  inside a synchronous user-gesture handler (tap / click).
-  Calling it automatically in useEffect is treated as a non-gesture context
-  and either silently fails, loops permission prompts, or produces no stream.
-
-  The lobby shows a "Join Call" button. The user taps it → the onClick handler
-  calls getBestStream() synchronously → browser accepts it as a user gesture
-  → permission prompt appears exactly once → stream is granted.
-*/
+/* ─── Lobby screen ────────────────────────────────────────────────────────────
+   getUserMedia MUST be called inside a direct user-gesture (tap/click).
+   Calling it in useEffect = non-gesture = repeated prompts / silent fail on mobile.
+───────────────────────────────────────────────────────────────────────────── */
 function Lobby({ recipe, roomId, onJoin }) {
   const [joining,  setJoining]  = useState(false);
   const [lobbyErr, setLobbyErr] = useState('');
@@ -194,57 +171,61 @@ function Lobby({ recipe, roomId, onJoin }) {
   const handleJoin = async () => {
     setJoining(true);
     setLobbyErr('');
-    // Called directly inside a click handler — satisfies mobile gesture requirement
-    const result = await getBestStream();
-    if (result.mode === 'blocked' || result.mode === 'error') {
+    const result = await getBestStream(); // ← direct click handler = valid gesture
+    if (result.mode === 'blocked') {
       setLobbyErr(result.warning);
       setJoining(false);
       return;
     }
-    onJoin(result); // hand stream + mode + warning up to Room
+    onJoin(result);
   };
 
   return (
     <div className="room-lobby">
       <div className="room-lobby__card">
-        {/* Logo */}
         <div className="room-lobby__logo">Flavour<span>Kit</span> · Live</div>
-
-        {/* Recipe preview */}
         {recipe ? (
           <div className="room-lobby__recipe">
             <img src={recipe.image} alt={recipe.title} className="room-lobby__recipe-img" />
             <p className="room-lobby__recipe-name">{recipe.title}</p>
           </div>
-        ) : (
-          <div className="room-lobby__recipe-empty">🍳</div>
-        )}
-
+        ) : <div className="room-lobby__recipe-empty">🍳</div>}
         <h2 className="room-lobby__title">Ready to cook together?</h2>
         <p className="room-lobby__subtitle">
-          Room <code className="room-lobby__code">{roomId}</code>
-          <br />Your browser will ask for camera &amp; microphone access.
+          Room <code className="room-lobby__code">{roomId}</code><br />
+          Your browser will ask for camera &amp; mic access.
         </p>
-
         {lobbyErr && (
-          <div className="room-lobby__error">
-            <span>⚠️</span>
-            <span>{lobbyErr}</span>
-          </div>
+          <div className="room-lobby__error"><span>⚠️</span><span>{lobbyErr}</span></div>
         )}
-
-        <button
-          className="room-lobby__join-btn"
-          onClick={handleJoin}
-          disabled={joining}
-        >
+        <button className="room-lobby__join-btn" onClick={handleJoin} disabled={joining}>
           {joining ? '⏳ Starting camera…' : '🎥 Join Call'}
         </button>
-
-        <p className="room-lobby__hint">
-          Tap the button above — your browser will ask permission once.
-        </p>
+        <p className="room-lobby__hint">Tap Join — your browser will ask permission once.</p>
       </div>
+    </div>
+  );
+}
+
+/* ─── ICE state badge ─────────────────────────────────────────────────────── */
+function IceBadge({ state }) {
+  if (!state || state === 'connected' || state === 'completed') return null;
+  const map = {
+    new:          { label: 'Setting up…',       color: '#888' },
+    checking:     { label: '🔄 Connecting…',    color: '#f59e0b' },
+    disconnected: { label: '⚠️ Unstable link',  color: '#f97316' },
+    failed:       { label: '❌ Connection failed — try End Call and rejoin', color: '#ef4444' },
+    closed:       { label: 'Call ended',         color: '#888' },
+  };
+  const info = map[state];
+  if (!info) return null;
+  return (
+    <div style={{
+      background: 'rgba(0,0,0,0.6)', border: `1px solid ${info.color}`,
+      borderRadius: 8, padding: '8px 14px', fontSize: '0.8rem',
+      color: info.color, marginBottom: 8,
+    }}>
+      {info.label}
     </div>
   );
 }
@@ -255,16 +236,16 @@ export default function Room() {
   const [searchParams] = useSearchParams();
   const navigate       = useNavigate();
 
+  // Video elements always in DOM — never conditionally rendered
   const localVideoRef   = useRef(null);
   const remoteVideoRef  = useRef(null);
   const peerRef         = useRef(null);
   const localStreamRef  = useRef(null);
   const remoteStreamRef = useRef(null);
   const dataConnRef     = useRef(null);
+  const activeCallRef   = useRef(null); // keep the MediaConnection ref
 
-  // Phase: 'lobby' → user must tap Join first  |  'call' → live call
   const [phase,        setPhase]        = useState('lobby');
-
   const [connected,    setConnected]    = useState(false);
   const [waiting,      setWaiting]      = useState(true);
   const [copied,       setCopied]       = useState(false);
@@ -274,99 +255,76 @@ export default function Room() {
   const [camOn,        setCamOn]        = useState(true);
   const [remoteMicOff, setRemoteMicOff] = useState(false);
   const [remoteCamOff, setRemoteCamOff] = useState(false);
+  const [iceState,     setIceState]     = useState('');
 
   const recipeId   = searchParams.get('recipe');
   const recipe     = recipeId ? data.recipes.find(r => r.id === recipeId) : null;
   const inviteLink = `${window.location.origin}/room/${roomId}${recipeId ? `?recipe=${recipeId}` : ''}`;
 
-  /* Send media state over DataConnection */
+  /* ── DataConnection: send mic/cam state ── */
   const sendMediaState = useCallback((mic, cam) => {
     const conn = dataConnRef.current;
     if (conn?.open) conn.send({ type: 'mediaState', micOn: mic, camOn: cam });
   }, []);
 
-  /* Wire a DataConnection */
   const wireDataConn = useCallback((conn) => {
     dataConnRef.current = conn;
-    conn.on('data', (msg) => {
+    conn.on('data', msg => {
       if (msg?.type === 'mediaState') {
         setRemoteMicOff(!msg.micOn);
         setRemoteCamOff(!msg.camOn);
       }
     });
-    conn.on('open', () => {
-      // Send our current state as soon as the channel opens
-      sendMediaState(micOn, camOn);
-    });
+    conn.on('open', () => sendMediaState(micOn, camOn));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendMediaState]);
 
-  /* Called by Lobby when the user taps Join and stream is ready */
-  const startCall = useCallback(({ stream, mode, warning, ctx }) => {
+  /* ── Monitor ICE connection state ── */
+  const monitorIce = useCallback((call) => {
+    // PeerJS exposes the underlying RTCPeerConnection as call.peerConnection
+    const pc = call?.peerConnection;
+    if (!pc) return;
+    const update = () => setIceState(pc.iceConnectionState);
+    pc.oniceconnectionstatechange = update;
+    update(); // get initial state
+  }, []);
+
+  /* ── Attach remote stream + force play ── */
+  const onRemoteStream = useCallback((remoteStream) => {
+    // Simplified echo guard — only reject if stream ID is exactly the same object
+    // The old track-ID check was too aggressive and blocked real mobile streams
+    const local = localStreamRef.current;
+    if (local && remoteStream.id === local.id) return;
+
+    remoteStreamRef.current = remoteStream;
+
+    // Use the attachStream helper which calls .play() explicitly
+    // This is required on mobile — autoPlay alone doesn't work for programmatic streams
+    attachStream(remoteVideoRef.current, remoteStream);
+
+    setConnected(true);
+    setWaiting(false);
+  }, []);
+
+  /* ── Called by Lobby after user taps Join ── */
+  const startCall = useCallback(({ stream, mode, warning }) => {
     localStreamRef.current = stream;
     setMediaMode(mode);
     setMediaWarning(warning || '');
     setPhase('call');
 
-    // Wire local video immediately — element is in DOM since phase is about to switch
-    // Use a small timeout to let React render the call UI first
-    setTimeout(() => {
-      if (stream && localVideoRef.current && stream.getVideoTracks().length > 0) {
-        localVideoRef.current.srcObject = stream;
-      }
-    }, 50);
+    // Attach local video — use requestAnimationFrame so DOM has rendered
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (stream && stream.getVideoTracks().length > 0) {
+          attachStream(localVideoRef.current, stream);
+        }
+      });
+    });
 
     const hostPeerId = `recipetogether-host-${roomId}`;
-    /*
-      WHY TURN SERVERS ARE REQUIRED FOR MOBILE:
-      - STUN only works when both peers have a reachable public IP (open NAT).
-      - Mobile carriers use Symmetric NAT — STUN cannot punch through it.
-      - TURN relays the media through a server when direct P2P fails.
-      - Without TURN: mobile ↔ desktop or mobile ↔ mobile = no stream.
-      Using Open Relay (free public TURN by Metered.ca) — no account needed.
-    */
-    const ICE_SERVERS = [
-      // STUN — fast direct connection when NAT allows it
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      // TURN over UDP (port 80 — works through most firewalls)
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      // TURN over TCP (fallback when UDP is blocked)
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      // TURNS over TLS (most restrictive networks — corporate/school firewalls)
-      {
-        urls: 'turns:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-    ];
-
-    const peerConfig = {
-      config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 },
-    };
+    const peerConfig = { config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 } };
     const safeStream = stream || new MediaStream();
-
-    const onRemoteStream = (remoteStream) => {
-      // Guard against PeerJS echo (local stream reflected back)
-      const local = localStreamRef.current;
-      if (local) {
-        if (remoteStream.id === local.id) return;
-        const localIds = new Set(local.getTracks().map(t => t.id));
-        if (remoteStream.getTracks().length > 0 && remoteStream.getTracks().every(t => localIds.has(t.id))) return;
-      }
-      remoteStreamRef.current = remoteStream;
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
-      setConnected(true);
-      setWaiting(false);
-    };
 
     const onCallClose = () => {
       remoteStreamRef.current = null;
@@ -375,42 +333,44 @@ export default function Room() {
       setWaiting(true);
       setRemoteMicOff(false);
       setRemoteCamOff(false);
+      setIceState('');
     };
 
-    /* Try host first */
+    /* Try to become HOST */
     const hostPeer = new Peer(hostPeerId, peerConfig);
     peerRef.current = hostPeer;
 
     hostPeer.on('open', () => {
       setWaiting(true);
-      hostPeer.on('connection', (conn) => wireDataConn(conn));
+      hostPeer.on('connection', conn => wireDataConn(conn));
     });
 
-    hostPeer.on('call', (call) => {
+    hostPeer.on('call', call => {
+      activeCallRef.current = call;
       call.answer(safeStream);
+      monitorIce(call);
       call.on('stream', onRemoteStream);
       call.on('close',  onCallClose);
     });
 
-    hostPeer.on('error', (err) => {
+    hostPeer.on('error', err => {
       if (err.type === 'unavailable-id') {
-        /* Become guest */
+        /* Become GUEST */
         hostPeer.destroy();
         const guestPeer = new Peer(peerConfig);
         peerRef.current = guestPeer;
 
         guestPeer.on('open', () => {
           const call = guestPeer.call(hostPeerId, safeStream);
+          activeCallRef.current = call;
+          monitorIce(call);
           call.on('stream', onRemoteStream);
           call.on('close',  onCallClose);
 
-          // Open data channel to host
-          const tryData = (attempts = 0) => {
+          const tryData = (n = 0) => {
             const conn = guestPeer.connect(hostPeerId, { reliable: true });
             conn.on('open', () => wireDataConn(conn));
-            conn.on('error', () => {
-              if (attempts < 5) setTimeout(() => tryData(attempts + 1), 800);
-            });
+            conn.on('error', () => { if (n < 5) setTimeout(() => tryData(n + 1), 800); });
           };
           setTimeout(() => tryData(), 500);
         });
@@ -418,21 +378,17 @@ export default function Room() {
         guestPeer.on('error', () => {});
       }
     });
+  }, [roomId, wireDataConn, monitorIce, onRemoteStream]);
 
-    // Store ctx for cleanup
-    if (ctx) peerRef._cleanupCtx = ctx;
-  }, [roomId, wireDataConn]);
-
-  /* Cleanup on unmount */
+  /* ── Cleanup on unmount ── */
   useEffect(() => {
     return () => {
       if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
       if (peerRef.current)        peerRef.current.destroy();
-      if (peerRef._cleanupCtx)    peerRef._cleanupCtx.close();
     };
   }, []);
 
-  /* Controls */
+  /* ── Controls ── */
   const copyInviteLink = async () => {
     try { await navigator.clipboard.writeText(inviteLink); }
     catch {
@@ -471,12 +427,12 @@ export default function Room() {
 
   const hasLocalVideo = mediaMode === 'video+audio' || mediaMode === 'video-only';
 
-  /* ── Show lobby until the user taps Join ── */
+  /* ── Lobby ── */
   if (phase === 'lobby') {
     return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />;
   }
 
-  /* ── Live call UI ── */
+  /* ── Call UI ── */
   return (
     <div className="room-page">
       <nav className="room-nav">
@@ -493,20 +449,24 @@ export default function Room() {
       </nav>
 
       <div className="room-layout">
-        {/* ── LEFT: Video ── */}
         <div className="room-call-col">
+
+          {/* Media permission warning */}
           {mediaWarning && (
             <div className={`room-media-warning ${mediaMode === 'blocked' ? 'room-media-warning--blocked' : ''}`}>
               <span>{mediaMode === 'blocked' ? '🔒' : '⚠️'}</span>
               <span style={{ flex: 1 }}>{mediaWarning}</span>
               {mediaMode === 'blocked' && (
-                <button className="room-retry-btn" onClick={() => { setPhase('lobby'); }}>Retry</button>
+                <button className="room-retry-btn" onClick={() => setPhase('lobby')}>Retry</button>
               )}
             </div>
           )}
 
+          {/* ICE connection state badge */}
+          <IceBadge state={iceState} />
+
           <div className="room-videos">
-            {/* Your video */}
+            {/* ── YOUR VIDEO — always in DOM, ref always valid ── */}
             <div className="video-container">
               <video
                 ref={localVideoRef}
@@ -531,8 +491,14 @@ export default function Room() {
               <span className="video-container__label">You</span>
             </div>
 
-            {/* Friend's video */}
+            {/* ── FRIEND'S VIDEO — always in DOM, ref always valid ── */}
             <div className="video-container">
+              {/*
+                video is ALWAYS rendered — just hidden via display:none.
+                This keeps remoteVideoRef.current valid at all times so
+                attachStream() can set srcObject the instant the stream arrives,
+                without waiting for a React re-render.
+              */}
               <video
                 ref={remoteVideoRef}
                 autoPlay playsInline
@@ -542,7 +508,9 @@ export default function Room() {
               {!connected && (
                 <div className="video-placeholder">
                   <div className="video-placeholder__icon">👨‍🍳</div>
-                  <div className="video-placeholder__text">{waiting ? 'Waiting for friend…' : 'Connecting…'}</div>
+                  <div className="video-placeholder__text">
+                    {waiting ? 'Waiting for friend…' : 'Connecting…'}
+                  </div>
                 </div>
               )}
               {connected && remoteCamOff && (
@@ -580,7 +548,6 @@ export default function Room() {
           </div>
         </div>
 
-        {/* ── RIGHT: Recipe ── */}
         <RecipePanel recipe={recipe} />
       </div>
     </div>
