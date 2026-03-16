@@ -11,7 +11,7 @@ function Navbar() {
     <nav className="nav">
       <div className="nav__inner">
         <Link to="/" className="nav__logo">
-          Flavour<span>Kit</span>
+          me<span>&</span>u
         </Link>
         <div className="nav__links">
           <Link to="/">Home</Link>
