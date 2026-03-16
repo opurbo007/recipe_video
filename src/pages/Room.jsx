@@ -8,7 +8,7 @@ import '../styles/main.css';
   SIGNALING SERVER URL
   ─────────────────────────────────────────────────────────────────────────────
   LOCAL DEV:   http://localhost:3001
-  PRODUCTION:  your Render.com URL e.g. https://me&u-signal.onrender.com
+  PRODUCTION:  your Render.com URL e.g. https://flavourkit-signal.onrender.com
   Change SIGNAL_URL to your deployed server URL before deploying to Vercel.
 ───────────────────────────────────────────────────────────────────────────── */
 const SIGNAL_URL = import.meta.env.VITE_SIGNAL_URL || 'http://localhost:3001';
@@ -648,15 +648,21 @@ export default function Room() {
                 </div>
               )}
               {connected && audioMuted && (
-                <div className="video-unmute-overlay" onClick={tapToUnmute}>
-                  <div style={{ fontSize: '2rem' }}>🔇</div>
+                <button
+                  className="video-unmute-overlay"
+                  onClick={tapToUnmute}
+                  type="button"
+                  aria-label="Tap to hear audio"
+                >
+                  <div style={{ fontSize: '2rem', pointerEvents: 'none' }}>🔇</div>
                   <div style={{
                     background: 'var(--pink)', color: 'white',
                     padding: '8px 20px', borderRadius: 20,
                     fontSize: '0.85rem', fontWeight: 700,
                     fontFamily: 'var(--font-body)', marginTop: 8,
+                    pointerEvents: 'none',
                   }}>Tap to hear audio</div>
-                </div>
+                </button>
               )}
               {connected && (
                 <div className="video-status-bar">
