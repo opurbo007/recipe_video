@@ -146,7 +146,7 @@ export default function Room() {
    useEffect(() => () => endCall(), []);
   const hasLocalVideo = mediaMode === 'video+audio' || mediaMode === 'video-only';
 
-  if (phase === 'lobby') return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />;
+ if (phase === 'lobby') { return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />; } const iceColors = { checking: '#f59e0b', disconnected: '#f97316', failed: '#ef4444' };
 
   return (
     <div className="room-page">
