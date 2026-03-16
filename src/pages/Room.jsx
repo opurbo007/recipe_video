@@ -19,33 +19,42 @@ function classifyError(err) {
 /* ─── Best available media stream ─────────────────────────────────────────── */
 async function getBestStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    return { stream: null, mode: 'blocked', warning: 'Camera/microphone access requires HTTPS or localhost.' };
+    return { stream: null, mode: 'blocked', warning: 'Camera/microphone requires HTTPS. Open the site over https://' };
   }
   let lastErr = null;
+
+  // 1) video + audio
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     return { stream, mode: 'video+audio', warning: '' };
   } catch (e) { lastErr = e; }
+
   const k1 = classifyError(lastErr);
-  if (k1 === 'permission') return { stream: null, mode: 'blocked', warning: 'Camera & microphone blocked. Click the 🔒 icon in the address bar, allow access, then click Retry.' };
-  if (k1 === 'in-use')     return { stream: null, mode: 'blocked', warning: 'Camera is used by another app (Zoom, Teams…). Close it then click Retry.' };
+  if (k1 === 'permission') return { stream: null, mode: 'blocked', warning: 'Camera & microphone access was denied. Tap the 🔒 icon in the address bar, set both to Allow, then tap Retry.' };
+  if (k1 === 'in-use')     return { stream: null, mode: 'blocked', warning: 'Camera is in use by another app. Close it then tap Retry.' };
+
+  // 2) audio only
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-    return { stream, mode: 'audio-only', warning: 'No camera detected — joining with audio only.' };
+    return { stream, mode: 'audio-only', warning: 'No camera found — joining with audio only.' };
   } catch (e) { lastErr = e; }
+
   const k2 = classifyError(lastErr);
-  if (k2 === 'permission') return { stream: null, mode: 'blocked', warning: 'Microphone blocked. Click the 🔒 icon in the address bar, allow access, then click Retry.' };
+  if (k2 === 'permission') return { stream: null, mode: 'blocked', warning: 'Microphone access was denied. Tap the 🔒 icon, set Microphone to Allow, then tap Retry.' };
+
+  // 3) silent fallback so PeerJS can still connect
   try {
     const ctx  = new (window.AudioContext || window.webkitAudioContext)();
     const dest = ctx.createMediaStreamDestination();
-    return { stream: dest.stream, mode: 'no-device', ctx, warning: 'No camera or microphone detected on this device.' };
+    return { stream: dest.stream, mode: 'no-device', ctx, warning: 'No camera or microphone detected.' };
   } catch (_) {}
+
   return { stream: null, mode: 'error', warning: 'Could not access any media device.' };
 }
 
 /* ─── Recipe side panel ───────────────────────────────────────────────────── */
 function RecipePanel({ recipe }) {
-  const [tab, setTab]     = useState('ingredients');
+  const [tab, setTab]         = useState('ingredients');
   const [checked, setChecked] = useState({});
   if (!recipe) return (
     <aside className="room-recipe-panel room-recipe-panel--empty">
@@ -108,29 +117,103 @@ function RecipePanel({ recipe }) {
   );
 }
 
+/* ─── Lobby (pre-join) screen ─────────────────────────────────────────────── */
+/*
+  WHY THIS EXISTS:
+  iOS Safari and Android Chrome enforce that getUserMedia() MUST be called
+  inside a synchronous user-gesture handler (tap / click).
+  Calling it automatically in useEffect is treated as a non-gesture context
+  and either silently fails, loops permission prompts, or produces no stream.
+
+  The lobby shows a "Join Call" button. The user taps it → the onClick handler
+  calls getBestStream() synchronously → browser accepts it as a user gesture
+  → permission prompt appears exactly once → stream is granted.
+*/
+function Lobby({ recipe, roomId, onJoin }) {
+  const [joining,  setJoining]  = useState(false);
+  const [lobbyErr, setLobbyErr] = useState('');
+
+  const handleJoin = async () => {
+    setJoining(true);
+    setLobbyErr('');
+    // Called directly inside a click handler — satisfies mobile gesture requirement
+    const result = await getBestStream();
+    if (result.mode === 'blocked' || result.mode === 'error') {
+      setLobbyErr(result.warning);
+      setJoining(false);
+      return;
+    }
+    onJoin(result); // hand stream + mode + warning up to Room
+  };
+
+  return (
+    <div className="room-lobby">
+      <div className="room-lobby__card">
+        {/* Logo */}
+        <div className="room-lobby__logo">Flavour<span>Kit</span> · Live</div>
+
+        {/* Recipe preview */}
+        {recipe ? (
+          <div className="room-lobby__recipe">
+            <img src={recipe.image} alt={recipe.title} className="room-lobby__recipe-img" />
+            <p className="room-lobby__recipe-name">{recipe.title}</p>
+          </div>
+        ) : (
+          <div className="room-lobby__recipe-empty">🍳</div>
+        )}
+
+        <h2 className="room-lobby__title">Ready to cook together?</h2>
+        <p className="room-lobby__subtitle">
+          Room <code className="room-lobby__code">{roomId}</code>
+          <br />Your browser will ask for camera &amp; microphone access.
+        </p>
+
+        {lobbyErr && (
+          <div className="room-lobby__error">
+            <span>⚠️</span>
+            <span>{lobbyErr}</span>
+          </div>
+        )}
+
+        <button
+          className="room-lobby__join-btn"
+          onClick={handleJoin}
+          disabled={joining}
+        >
+          {joining ? '⏳ Starting camera…' : '🎥 Join Call'}
+        </button>
+
+        <p className="room-lobby__hint">
+          Tap the button above — your browser will ask permission once.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main Room ───────────────────────────────────────────────────────────── */
 export default function Room() {
   const { id: roomId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate       = useNavigate();
 
-  const localVideoRef  = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const peerRef        = useRef(null);
-  const localStreamRef = useRef(null);
+  const localVideoRef   = useRef(null);
+  const remoteVideoRef  = useRef(null);
+  const peerRef         = useRef(null);
+  const localStreamRef  = useRef(null);
   const remoteStreamRef = useRef(null);
-  // DataConnection ref — used to broadcast mic/cam state to the other peer
-  const dataConnRef    = useRef(null);
+  const dataConnRef     = useRef(null);
+
+  // Phase: 'lobby' → user must tap Join first  |  'call' → live call
+  const [phase,        setPhase]        = useState('lobby');
 
   const [connected,    setConnected]    = useState(false);
   const [waiting,      setWaiting]      = useState(true);
   const [copied,       setCopied]       = useState(false);
   const [mediaMode,    setMediaMode]    = useState('');
   const [mediaWarning, setMediaWarning] = useState('');
-  // Local mic/cam state
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
-  // Remote mic/cam state — updated via DataConnection messages
+  const [micOn,        setMicOn]        = useState(true);
+  const [camOn,        setCamOn]        = useState(true);
   const [remoteMicOff, setRemoteMicOff] = useState(false);
   const [remoteCamOff, setRemoteCamOff] = useState(false);
 
@@ -138,15 +221,13 @@ export default function Room() {
   const recipe     = recipeId ? data.recipes.find(r => r.id === recipeId) : null;
   const inviteLink = `${window.location.origin}/room/${roomId}${recipeId ? `?recipe=${recipeId}` : ''}`;
 
-  /* Send mic/cam state over DataConnection */
+  /* Send media state over DataConnection */
   const sendMediaState = useCallback((mic, cam) => {
     const conn = dataConnRef.current;
-    if (conn && conn.open) {
-      conn.send({ type: 'mediaState', micOn: mic, camOn: cam });
-    }
+    if (conn?.open) conn.send({ type: 'mediaState', micOn: mic, camOn: cam });
   }, []);
 
-  /* Wire up a DataConnection (receiving messages from the other peer) */
+  /* Wire a DataConnection */
   const wireDataConn = useCallback((conn) => {
     dataConnRef.current = conn;
     conn.on('data', (msg) => {
@@ -156,113 +237,112 @@ export default function Room() {
       }
     });
     conn.on('open', () => {
-      // As soon as data channel opens, send our current state to the other side
-      setMicOn(prev => { sendMediaState(prev, undefined); return prev; });
+      // Send our current state as soon as the channel opens
+      sendMediaState(micOn, camOn);
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendMediaState]);
 
-  /* PeerJS + media init */
-  useEffect(() => {
-    let cleanupCtx = null;
+  /* Called by Lobby when the user taps Join and stream is ready */
+  const startCall = useCallback(({ stream, mode, warning, ctx }) => {
+    localStreamRef.current = stream;
+    setMediaMode(mode);
+    setMediaWarning(warning || '');
+    setPhase('call');
 
-    const init = async () => {
-      const { stream, mode, ctx, warning } = await getBestStream();
-      cleanupCtx             = ctx || null;
-      localStreamRef.current = stream;
-
+    // Wire local video immediately — element is in DOM since phase is about to switch
+    // Use a small timeout to let React render the call UI first
+    setTimeout(() => {
       if (stream && localVideoRef.current && stream.getVideoTracks().length > 0) {
         localVideoRef.current.srcObject = stream;
       }
-      setMediaMode(mode);
-      setMediaWarning(warning || '');
+    }, 50);
 
-      const hostPeerId  = `recipetogether-host-${roomId}`;
-      // Data channel peer ID is separate so it doesn't clash with the media peer
-      const hostDataId  = `recipetogether-data-${roomId}`;
-      const peerConfig  = {
-        config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] },
-      };
-      const safeStream = stream || new MediaStream();
+    const hostPeerId = `recipetogether-host-${roomId}`;
+    const peerConfig = {
+      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] },
+    };
+    const safeStream = stream || new MediaStream();
 
-      const onRemoteStream = (remoteStream) => {
-        // Guard against PeerJS local-stream echo
-        const local = localStreamRef.current;
-        if (local) {
-          if (remoteStream.id === local.id) return;
-          const localIds = new Set(local.getTracks().map(t => t.id));
-          if (remoteStream.getTracks().length > 0 && remoteStream.getTracks().every(t => localIds.has(t.id))) return;
-        }
-        remoteStreamRef.current = remoteStream;
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
-        setConnected(true);
-        setWaiting(false);
-      };
-
-      const onCallClose = () => {
-        remoteStreamRef.current = null;
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-        setConnected(false);
-        setWaiting(true);
-        setRemoteMicOff(false);
-        setRemoteCamOff(false);
-      };
-
-      /* ── Try to become HOST ── */
-      const hostPeer = new Peer(hostPeerId, peerConfig);
-      peerRef.current = hostPeer;
-
-      hostPeer.on('open', () => {
-        setWaiting(true);
-        // Host also listens for the guest's data connection
-        hostPeer.on('connection', (conn) => wireDataConn(conn));
-      });
-
-      hostPeer.on('call', (call) => {
-        call.answer(safeStream);
-        call.on('stream', onRemoteStream);
-        call.on('close',  onCallClose);
-      });
-
-      hostPeer.on('error', (err) => {
-        if (err.type === 'unavailable-id') {
-          /* ── Become GUEST ── */
-          hostPeer.destroy();
-          const guestPeer = new Peer(peerConfig);
-          peerRef.current = guestPeer;
-
-          guestPeer.on('open', () => {
-            // Media call
-            const call = guestPeer.call(hostPeerId, safeStream);
-            call.on('stream', onRemoteStream);
-            call.on('close',  onCallClose);
-
-            // Data channel — guest initiates connection to the host's data peer ID
-            // We retry until the host's data peer is ready (it registers separately)
-            const tryDataConnect = (attempts = 0) => {
-              const conn = guestPeer.connect(hostPeerId, { reliable: true });
-              conn.on('open', () => wireDataConn(conn));
-              conn.on('error', () => {
-                if (attempts < 5) setTimeout(() => tryDataConnect(attempts + 1), 800);
-              });
-            };
-            setTimeout(() => tryDataConnect(), 500);
-          });
-
-          guestPeer.on('error', () => {});
-        }
-      });
+    const onRemoteStream = (remoteStream) => {
+      // Guard against PeerJS echo (local stream reflected back)
+      const local = localStreamRef.current;
+      if (local) {
+        if (remoteStream.id === local.id) return;
+        const localIds = new Set(local.getTracks().map(t => t.id));
+        if (remoteStream.getTracks().length > 0 && remoteStream.getTracks().every(t => localIds.has(t.id))) return;
+      }
+      remoteStreamRef.current = remoteStream;
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+      setConnected(true);
+      setWaiting(false);
     };
 
-    init();
+    const onCallClose = () => {
+      remoteStreamRef.current = null;
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      setConnected(false);
+      setWaiting(true);
+      setRemoteMicOff(false);
+      setRemoteCamOff(false);
+    };
 
+    /* Try host first */
+    const hostPeer = new Peer(hostPeerId, peerConfig);
+    peerRef.current = hostPeer;
+
+    hostPeer.on('open', () => {
+      setWaiting(true);
+      hostPeer.on('connection', (conn) => wireDataConn(conn));
+    });
+
+    hostPeer.on('call', (call) => {
+      call.answer(safeStream);
+      call.on('stream', onRemoteStream);
+      call.on('close',  onCallClose);
+    });
+
+    hostPeer.on('error', (err) => {
+      if (err.type === 'unavailable-id') {
+        /* Become guest */
+        hostPeer.destroy();
+        const guestPeer = new Peer(peerConfig);
+        peerRef.current = guestPeer;
+
+        guestPeer.on('open', () => {
+          const call = guestPeer.call(hostPeerId, safeStream);
+          call.on('stream', onRemoteStream);
+          call.on('close',  onCallClose);
+
+          // Open data channel to host
+          const tryData = (attempts = 0) => {
+            const conn = guestPeer.connect(hostPeerId, { reliable: true });
+            conn.on('open', () => wireDataConn(conn));
+            conn.on('error', () => {
+              if (attempts < 5) setTimeout(() => tryData(attempts + 1), 800);
+            });
+          };
+          setTimeout(() => tryData(), 500);
+        });
+
+        guestPeer.on('error', () => {});
+      }
+    });
+
+    // Store ctx for cleanup
+    if (ctx) peerRef._cleanupCtx = ctx;
+  }, [roomId, wireDataConn]);
+
+  /* Cleanup on unmount */
+  useEffect(() => {
     return () => {
       if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
       if (peerRef.current)        peerRef.current.destroy();
-      if (cleanupCtx)             cleanupCtx.close();
+      if (peerRef._cleanupCtx)    peerRef._cleanupCtx.close();
     };
-  }, [roomId, wireDataConn]);
+  }, []);
 
-  /* ── Controls ── */
+  /* Controls */
   const copyInviteLink = async () => {
     try { await navigator.clipboard.writeText(inviteLink); }
     catch {
@@ -282,7 +362,7 @@ export default function Room() {
     const next = !micOn;
     localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = next; });
     setMicOn(next);
-    sendMediaState(next, camOn); // ← broadcast to friend
+    sendMediaState(next, camOn);
   };
 
   const toggleCam = () => {
@@ -290,7 +370,7 @@ export default function Room() {
     const next = !camOn;
     localStreamRef.current.getVideoTracks().forEach(t => { t.enabled = next; });
     setCamOn(next);
-    sendMediaState(micOn, next); // ← broadcast to friend
+    sendMediaState(micOn, next);
   };
 
   const endCall = () => {
@@ -301,6 +381,12 @@ export default function Room() {
 
   const hasLocalVideo = mediaMode === 'video+audio';
 
+  /* ── Show lobby until the user taps Join ── */
+  if (phase === 'lobby') {
+    return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />;
+  }
+
+  /* ── Live call UI ── */
   return (
     <div className="room-page">
       <nav className="room-nav">
@@ -317,20 +403,20 @@ export default function Room() {
       </nav>
 
       <div className="room-layout">
-        {/* ── LEFT: Video call ── */}
+        {/* ── LEFT: Video ── */}
         <div className="room-call-col">
           {mediaWarning && (
             <div className={`room-media-warning ${mediaMode === 'blocked' ? 'room-media-warning--blocked' : ''}`}>
               <span>{mediaMode === 'blocked' ? '🔒' : '⚠️'}</span>
               <span style={{ flex: 1 }}>{mediaWarning}</span>
               {mediaMode === 'blocked' && (
-                <button className="room-retry-btn" onClick={() => window.location.reload()}>Retry</button>
+                <button className="room-retry-btn" onClick={() => { setPhase('lobby'); }}>Retry</button>
               )}
             </div>
           )}
 
           <div className="room-videos">
-            {/* ── YOUR VIDEO ── */}
+            {/* Your video */}
             <div className="video-container">
               <video
                 ref={localVideoRef}
@@ -348,23 +434,14 @@ export default function Room() {
                   </div>
                 </div>
               )}
-              {/* Your own mic/cam status icons */}
               <div className="video-status-bar">
-                <span className={`vstatus-icon ${!micOn ? 'vstatus-icon--off' : ''}`}
-                  title={micOn ? 'Mic on' : 'Mic muted'}>
-                  {micOn ? '🎙️' : '🔇'}
-                </span>
-                {hasLocalVideo && (
-                  <span className={`vstatus-icon ${!camOn ? 'vstatus-icon--off' : ''}`}
-                    title={camOn ? 'Camera on' : 'Camera off'}>
-                    {camOn ? '📷' : '🚫'}
-                  </span>
-                )}
+                <span className={`vstatus-icon ${!micOn ? 'vstatus-icon--off' : ''}`}>{micOn ? '🎙️' : '🔇'}</span>
+                {hasLocalVideo && <span className={`vstatus-icon ${!camOn ? 'vstatus-icon--off' : ''}`}>{camOn ? '📷' : '🚫'}</span>}
               </div>
               <span className="video-container__label">You</span>
             </div>
 
-            {/* ── FRIEND'S VIDEO ── */}
+            {/* Friend's video */}
             <div className="video-container">
               <video
                 ref={remoteVideoRef}
@@ -372,33 +449,22 @@ export default function Room() {
                 className="room-video-el"
                 style={{ display: connected ? 'block' : 'none' }}
               />
-              {/* Not connected yet */}
               {!connected && (
                 <div className="video-placeholder">
                   <div className="video-placeholder__icon">👨‍🍳</div>
-                  <div className="video-placeholder__text">
-                    {waiting ? 'Waiting for friend…' : 'Connecting…'}
-                  </div>
+                  <div className="video-placeholder__text">{waiting ? 'Waiting for friend…' : 'Connecting…'}</div>
                 </div>
               )}
-              {/* Camera-off dark overlay */}
               {connected && remoteCamOff && (
                 <div className="video-cam-off-overlay">
                   <div className="video-placeholder__icon">🚫</div>
                   <div className="video-placeholder__text">Camera off</div>
                 </div>
               )}
-              {/* Friend's mic/cam status icons — always visible when connected */}
               {connected && (
                 <div className="video-status-bar">
-                  <span className={`vstatus-icon ${remoteMicOff ? 'vstatus-icon--off' : ''}`}
-                    title={remoteMicOff ? 'Friend muted' : 'Friend mic on'}>
-                    {remoteMicOff ? '🔇' : '🎙️'}
-                  </span>
-                  <span className={`vstatus-icon ${remoteCamOff ? 'vstatus-icon--off' : ''}`}
-                    title={remoteCamOff ? 'Friend camera off' : 'Friend camera on'}>
-                    {remoteCamOff ? '🚫' : '📷'}
-                  </span>
+                  <span className={`vstatus-icon ${remoteMicOff ? 'vstatus-icon--off' : ''}`}>{remoteMicOff ? '🔇' : '🎙️'}</span>
+                  <span className={`vstatus-icon ${remoteCamOff ? 'vstatus-icon--off' : ''}`}>{remoteCamOff ? '🚫' : '📷'}</span>
                 </div>
               )}
               {connected && <span className="video-container__label">Friend 🧑‍🍳</span>}
@@ -424,7 +490,7 @@ export default function Room() {
           </div>
         </div>
 
-        {/* ── RIGHT: Recipe panel ── */}
+        {/* ── RIGHT: Recipe ── */}
         <RecipePanel recipe={recipe} />
       </div>
     </div>
