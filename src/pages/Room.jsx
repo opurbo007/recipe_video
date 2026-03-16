@@ -13,7 +13,7 @@ import '../styles/main.css';
   { urls: 'stun:stun4.l.google.com:19302' },
 ];;
 
-/* ─── Attach stream to <video> and force play() ───────────────────────────── */
+//  Attach stream to <video> and force play() 
 function attachStream(el, stream) {
   if (!el || !stream) return;
   if (el.srcObject === stream) return;
@@ -21,7 +21,7 @@ function attachStream(el, stream) {
   el.play().catch(() => {});
 }
 
-/* ─── Classify getUserMedia errors ───────────────────────────────────────── */
+//  Classify getUserMedia errors
 function classifyError(err) {
   const name = err?.name || '';
   const msg  = (err?.message || '').toLowerCase();
@@ -33,7 +33,7 @@ function classifyError(err) {
   return 'unknown';
 }
 
-/* ─── Request mic + camera separately (iOS Safari shows one prompt at a time) */
+// Request mic + camera separately  
 async function getBestStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
     return { stream: null, mode: 'blocked', warning: 'Camera/mic requires HTTPS.' };
@@ -89,7 +89,7 @@ async function getBestStream() {
   return { stream: merged, mode, warning };
 }
 
-/* ─── Recipe panel ─────────────────────────────────────────────────────────── */
+//  Recipe panel
 function RecipePanel({ recipe }) {
   const [tab, setTab]         = useState('ingredients');
   const [checked, setChecked] = useState({});
@@ -154,7 +154,7 @@ function RecipePanel({ recipe }) {
   );
 }
 
-/* ─── Lobby screen ─────────────────────────────────────────────────────────── */
+//  Lobby screen
 function Lobby({ recipe, roomId, onJoin }) {
   const [joining,  setJoining]  = useState(false);
   const [lobbyErr, setLobbyErr] = useState('');
@@ -198,7 +198,7 @@ function Lobby({ recipe, roomId, onJoin }) {
   );
 }
 
-/* ─── ICE state badge ──────────────────────────────────────────────────────── */
+// ICE state badge
 function IceBadge({ state }) {
   const map = {
     checking:     { label: '🔄 Connecting…',       color: '#f59e0b' },
@@ -298,7 +298,7 @@ export default function Room() {
     setConnStatus('');
   }, []);
 
-  /* ── Called by Lobby after user taps Join ── */
+//  Called by Lobby after user taps Join 
   const startCall = useCallback(({ stream, mode, warning }) => {
     localStreamRef.current = stream;
     setMediaMode(mode);
@@ -313,12 +313,7 @@ export default function Room() {
 
     const hostPeerId = `me&u-host-${roomId}`;
 
-    /*
-      iceTransportPolicy: 'all'
-      → Same network (WiFi/LAN): uses direct P2P — fast, no TURN needed
-      → Different networks (4G vs WiFi): direct fails, ICE falls back to TURN relay
-      The key is having reliable TURN servers as fallback + enough candidates collected.
-    */
+
     const peerConfig = {
       config: {
         iceServers: ICE_SERVERS,
