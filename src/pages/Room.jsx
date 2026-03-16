@@ -5,20 +5,25 @@ import data from '../data/recipes.json';
 import '../styles/main.css';
 
 /* ─── TURN / STUN servers ─────────────────────────────────────────────────────
-   Multiple providers so if one is down or rate-limited, others kick in.
-   Mobile carriers use Symmetric NAT — STUN alone never works on 4G/5G.
-   TURN relays ALL media through a server when P2P fails.
+   Multiple providers — if one is rate-limited or down, others kick in.
+   Mobile data (4G/5G) uses Symmetric NAT — STUN alone never works.
+   TURN relays ALL media through a server when direct P2P fails.
 ───────────────────────────────────────────────────────────────────────────── */
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  // freestun.net — free public TURN, no account needed
+  { urls: 'stun:stun2.l.google.com:19302' },
+  // freestun.net — primary free TURN
   { urls: 'turn:freestun.net:3479',  username: 'free', credential: 'free' },
   { urls: 'turns:freestun.net:5350', username: 'free', credential: 'free' },
-  // openrelay by metered.ca — second fallback
+  // openrelay — secondary free TURN
   { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  // relay.metered.ca — third fallback
+  { urls: 'turn:relay.metered.ca:80',   username: 'e8dd65bbd622de3f9be7e49d', credential: 'uMPBQDFqxXDJuJID' },
+  { urls: 'turn:relay.metered.ca:443',  username: 'e8dd65bbd622de3f9be7e49d', credential: 'uMPBQDFqxXDJuJID' },
+  { urls: 'turns:relay.metered.ca:443', username: 'e8dd65bbd622de3f9be7e49d', credential: 'uMPBQDFqxXDJuJID' },
 ];
 
 /* ─── Helper: attach a stream to a <video> and force play ─────────────────────
@@ -62,7 +67,15 @@ async function getBestStream() {
   let videoWarning = '';
 
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,   // ← removes echo from speakers going into mic
+        noiseSuppression: true,   // ← filters background noise
+        autoGainControl:  true,   // ← normalises volume levels
+        sampleRate:       48000,  // ← high quality audio
+      },
+      video: false,
+    });
   } catch (e) {
     const k = classifyError(e);
     audioWarning = k === 'permission' ? 'Microphone denied.' : k === 'in-use' ? 'Mic in use by another app.' : 'No microphone found.';
@@ -281,12 +294,37 @@ export default function Room() {
 
   /* ── Monitor ICE connection state ── */
   const monitorIce = useCallback((call) => {
-    // PeerJS exposes the underlying RTCPeerConnection as call.peerConnection
     const pc = call?.peerConnection;
     if (!pc) return;
-    const update = () => setIceState(pc.iceConnectionState);
+    let disconnectTimer = null;
+
+    const update = () => {
+      const s = pc.iceConnectionState;
+
+      // 'disconnected' is often transient (network hiccup) — wait 4s before showing warning
+      if (s === 'disconnected') {
+        disconnectTimer = setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected') {
+            setIceState('disconnected');
+            // Attempt ICE restart — renegotiates candidates without hanging up
+            try { pc.restartIce(); } catch (_) {}
+          }
+        }, 4000);
+        return;
+      }
+
+      clearTimeout(disconnectTimer);
+
+      // 'connected' or 'completed' = all good, clear any warning
+      if (s === 'connected' || s === 'completed') {
+        setIceState('');
+      } else {
+        setIceState(s);
+      }
+    };
+
     pc.oniceconnectionstatechange = update;
-    update(); // get initial state
+    update();
   }, []);
 
   /* ── Attach remote stream + force play ── */
@@ -323,7 +361,17 @@ export default function Room() {
     });
 
     const hostPeerId = `recipetogether-host-${roomId}`;
-    const peerConfig = { config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 } };
+    const peerConfig = {
+      config: {
+        iceServers: ICE_SERVERS,
+        iceCandidatePoolSize: 10,
+        // 'all' = try direct P2P first, relay via TURN if it fails
+        // Do NOT use 'relay' only — that forces TURN even when P2P works
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
+      },
+    };
     const safeStream = stream || new MediaStream();
 
     const onCallClose = () => {
