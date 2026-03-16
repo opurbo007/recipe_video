@@ -25,13 +25,7 @@ const ICE_SERVERS = [
 ];
 
 
-useEffect(() => {
-  if (localVideoRef.current) {
-    localVideoRef.current.muted = true;
-    localVideoRef.current.volume = 0;
-    localVideoRef.current.setAttribute("muted", "");
-  }
-}, []);
+
 /* ─── getUserMedia error classifier ──────────────────────────────────────── */
 function classifyError(err) {
   const name = err?.name || '';
@@ -274,7 +268,13 @@ export default function Room() {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendMediaState, log]);
-
+useEffect(() => {
+  if (localVideoRef.current) {
+    localVideoRef.current.muted = true;
+    localVideoRef.current.volume = 0;
+    localVideoRef.current.setAttribute("muted", "");
+  }
+}, []);
   /* Retry attaching stream every 500ms until video plays */
   const startStreamRetry = useCallback((remoteStream) => {
     clearInterval(streamRetryRef.current);
@@ -508,10 +508,13 @@ if (localVideoRef.current) {
       call.on('close',  onCallClose);
     });
 
-  hostPeer.destroy();
-
-const guestPeer = new Peer(undefined, peerConfig);
-peerRef.current = guestPeer;
+if (roomId.includes("host")) {
+   const hostPeer = new Peer(hostPeerId, peerConfig);
+   peerRef.current = hostPeer;
+} else {
+   const guestPeer = new Peer(undefined, peerConfig);
+   peerRef.current = guestPeer;
+}
 
 guestPeer.on('open', id => {
   log(`Guest peer open: ${id} — calling host: ${hostPeerId}`);
