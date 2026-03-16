@@ -562,6 +562,7 @@ button {
 .recipe-page__category-tag {
   font-size: 0.8rem;
   font-weight: 600;
+  width: fit-content;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--pink);
