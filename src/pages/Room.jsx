@@ -8,7 +8,7 @@ import '../styles/main.css';
   SIGNALING SERVER URL
   ─────────────────────────────────────────────────────────────────────────────
   LOCAL DEV:   http://localhost:3001
-  PRODUCTION:  your Render.com URL e.g. https://flavourkit-signal.onrender.com
+  PRODUCTION:  your Render.com URL e.g. https://me&u-signal.onrender.com
   Change SIGNAL_URL to your deployed server URL before deploying to Vercel.
 ───────────────────────────────────────────────────────────────────────────── */
 const SIGNAL_URL = import.meta.env.VITE_SIGNAL_URL || 'http://localhost:3001';

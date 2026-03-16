@@ -1,6 +1,7 @@
-# FlavourKit Signaling Server — Deploy to Render.com (Free)
+# me&u Signaling Server — Deploy to Render.com (Free)
 
 ## Why we need this server
+
 WebRTC needs a "signaling" layer to exchange connection info (SDP offer/answer + ICE candidates)
 between two browsers before direct video can flow. We use Socket.IO for this.
 
@@ -20,18 +21,20 @@ All actual media flows peer-to-peer (or via TURN relay).
    - **Start command:** `npm start`
    - **Instance type:** Free
 5. Click Deploy
-6. Copy your URL e.g. `https://flavourkit-signal.onrender.com`
+6. Copy your URL e.g. `https://me&u-signal.onrender.com`
 
 ---
 
 ## Step 2 — Set VITE_SIGNAL_URL for the frontend
 
 ### On Vercel:
+
 1. Go to your Vercel project → Settings → Environment Variables
 2. Add: `VITE_SIGNAL_URL` = `https://your-app.onrender.com`
 3. Redeploy
 
 ### Locally:
+
 1. Copy `.env.example` to `.env.local`
 2. Set `VITE_SIGNAL_URL=http://localhost:3001`
 3. Run `npm run dev` in the `server/` folder AND `npm run dev` in the root
@@ -41,6 +44,7 @@ All actual media flows peer-to-peer (or via TURN relay).
 ## Local development (both server + frontend)
 
 Terminal 1 — signaling server:
+
 ```bash
 cd server
 npm install
@@ -49,6 +53,7 @@ npm start
 ```
 
 Terminal 2 — React frontend:
+
 ```bash
 npm install
 npm run dev

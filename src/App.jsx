@@ -25,7 +25,7 @@ function Navbar() {
 function Footer() {
   return (
     <footer className="footer">
-      Made with <span>♥</span> &amp; FlavourKit — Cook more, stress less.
+      Made with <span>♥</span> &amp; me&u — Cook more, stress less.
     </footer>
   );
 }

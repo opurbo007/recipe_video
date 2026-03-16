@@ -1,7 +1,7 @@
 {
-  "name": "flavourkit-signaling-server",
+  "name": "me&u-signaling-server",
   "version": "1.0.0",
-  "description": "Socket.IO signaling server for FlavourKit video calls",
+  "description": "Socket.IO signaling server for me&u video calls",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
