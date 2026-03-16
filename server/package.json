@@ -1,0 +1,20 @@
+{
+  "name": "flavourkit-signaling-server",
+  "version": "1.0.0",
+  "description": "Socket.IO signaling server for FlavourKit video calls",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

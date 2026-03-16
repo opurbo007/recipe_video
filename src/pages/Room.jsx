@@ -1,30 +1,40 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import Peer from 'peerjs';
+import { io } from 'socket.io-client';
 import data from '../data/recipes.json';
 import '../styles/main.css';
 
-/* ─── TURN servers ────────────────────────────────────────────────────────────
-   Using Metered.ca documented demo credentials + multiple fallbacks.
-   iceTransportPolicy: 'all' — direct P2P on same network, TURN on different.
+/* ─────────────────────────────────────────────────────────────────────────────
+  SIGNALING SERVER URL
+  ─────────────────────────────────────────────────────────────────────────────
+  LOCAL DEV:   http://localhost:3001
+  PRODUCTION:  your Render.com URL e.g. https://flavourkit-signal.onrender.com
+  Change SIGNAL_URL to your deployed server URL before deploying to Vercel.
 ───────────────────────────────────────────────────────────────────────────── */
+const SIGNAL_URL = import.meta.env.VITE_SIGNAL_URL || 'http://localhost:3001';
+
+/* ─── ICE servers — STUN + multiple TURN for cross-network ──────────────── */
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  // Metered.ca TURN — documented public demo credentials
-  { urls: 'turn:a.relay.metered.ca:80',    username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
-  { urls: 'turn:a.relay.metered.ca:80?transport=tcp', username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
-  { urls: 'turn:a.relay.metered.ca:443',   username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
-  { urls: 'turns:a.relay.metered.ca:443',  username: '83eebabf8b4cce9d5dbcb649', credential: '2D7JvfkOQtBdYW3R' },
-  // openrelay backup
   { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443',  username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:freestun.net:3479',  username: 'free', credential: 'free' },
+  { urls: 'turns:freestun.net:5350', username: 'free', credential: 'free' },
 ];
 
-
+/* ─── Attach stream + force play + explicit unmute ─────────────────────── */
+function attachStream(el, stream) {
+  if (!el || !stream) return;
+  el.srcObject = stream;
+  el.muted     = false;
+  el.volume    = 1.0;
+  el.play().catch(() => {
+    // Browser blocked autoplay — the tap-to-unmute overlay will handle this
+  });
+}
 
 /* ─── getUserMedia error classifier ──────────────────────────────────────── */
 function classifyError(err) {
@@ -38,13 +48,12 @@ function classifyError(err) {
   return 'unknown';
 }
 
-/* ─── Request mic + camera separately (iOS shows one prompt at a time) ──── */
+/* ─── Request mic + camera separately (iOS one-prompt-at-a-time fix) ─────── */
 async function getBestStream() {
   if (!navigator.mediaDevices?.getUserMedia) {
     return { stream: null, mode: 'blocked', warning: 'Camera/mic requires HTTPS.' };
   }
-  let audioStream = null;
-  let videoStream = null;
+  let audioStream = null, videoStream = null;
   let audioWarn = '', videoWarn = '';
 
   try {
@@ -54,14 +63,14 @@ async function getBestStream() {
     });
   } catch (e) {
     const k = classifyError(e);
-    audioWarn = k === 'permission' ? 'Mic denied. Tap 🔒 → Allow.' : 'No mic detected.';
+    audioWarn = k === 'permission' ? 'Mic denied — tap 🔒 → Allow Microphone.' : 'No mic detected.';
   }
 
   try {
     videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
   } catch (e) {
     const k = classifyError(e);
-    videoWarn = k === 'permission' ? 'Camera denied. Tap 🔒 → Allow.' : 'No camera detected.';
+    videoWarn = k === 'permission' ? 'Camera denied — tap 🔒 → Allow Camera.' : 'No camera detected.';
   }
 
   const hasAudio = !!audioStream?.getAudioTracks().length;
@@ -106,7 +115,8 @@ function RecipePanel({ recipe }) {
           Ingredients <span className="room-tab__count">{recipe.ingredients.length}</span>
         </button>
         <button className={`room-tab ${tab === 'steps' ? 'active' : ''}`} onClick={() => setTab('steps')}>
-          Steps <span className={`room-tab__count ${doneCount > 0 ? 'room-tab__count--done' : ''}`}>
+          Steps{' '}
+          <span className={`room-tab__count ${doneCount > 0 ? 'room-tab__count--done' : ''}`}>
             {doneCount > 0 ? `${doneCount}/${recipe.instructions.length}` : recipe.instructions.length}
           </span>
         </button>
@@ -174,25 +184,22 @@ function Lobby({ recipe, roomId, onJoin }) {
         <button className="room-lobby__join-btn" onClick={handleJoin} disabled={joining}>
           {joining ? '📷 Starting camera…' : '🎥 Join Call'}
         </button>
-        <p className="room-lobby__hint">Tap Join — browser will ask for permission once.</p>
+        <p className="room-lobby__hint">Tap Join — your browser will ask for permission once.</p>
       </div>
     </div>
   );
 }
 
-/* ─── Debug panel (visible on screen — helps diagnose mobile issues) ────────── */
+/* ─── Debug panel ──────────────────────────────────────────────────────────── */
 function DebugPanel({ logs, visible, onToggle }) {
   return (
     <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999 }}>
-      <button
-        onClick={onToggle}
-        style={{
-          width: '100%', padding: '6px', background: '#1a1a1a',
-          color: '#888', border: 'none', fontSize: '0.7rem', cursor: 'pointer',
-          borderTop: '1px solid #333',
-        }}
-      >
-        {visible ? '▼ Hide Debug' : '▲ Show Debug Log'}
+      <button onClick={onToggle} style={{
+        width: '100%', padding: '6px', background: '#1a1a1a',
+        color: '#888', border: 'none', fontSize: '0.7rem', cursor: 'pointer',
+        borderTop: '1px solid #333',
+      }}>
+        {visible ? '▼ Hide Debug' : '▲ Debug Log'}
       </button>
       {visible && (
         <div style={{
@@ -201,7 +208,7 @@ function DebugPanel({ logs, visible, onToggle }) {
           overflowY: 'auto', borderTop: '1px solid #333',
         }}>
           {logs.map((l, i) => <div key={i}>{l}</div>)}
-          {logs.length === 0 && <div>No logs yet.</div>}
+          {!logs.length && <div>No logs yet.</div>}
         </div>
       )}
     </div>
@@ -214,14 +221,12 @@ export default function Room() {
   const [searchParams] = useSearchParams();
   const navigate       = useNavigate();
 
-  const localVideoRef   = useRef(null);
-  const remoteVideoRef  = useRef(null);
-  const peerRef         = useRef(null);
-  const localStreamRef  = useRef(null);
-  const remoteStreamRef = useRef(null);
-  const dataConnRef     = useRef(null);
-  const activeCallRef   = useRef(null);
-  const streamRetryRef  = useRef(null);
+  const localVideoRef  = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const socketRef      = useRef(null);
+  const pcRef          = useRef(null);          // RTCPeerConnection
+  const localStreamRef = useRef(null);
+  const remoteIdRef    = useRef(null);          // socket ID of the other peer
 
   const [phase,        setPhase]        = useState('lobby');
   const [connected,    setConnected]    = useState(false);
@@ -245,324 +250,249 @@ export default function Room() {
 
   const log = useCallback((msg) => {
     const ts = new Date().toLocaleTimeString();
-    setDebugLogs(prev => [`[${ts}] ${msg}`, ...prev].slice(0, 60));
+    console.log(`[Room] ${msg}`);
+    setDebugLogs(p => [`[${ts}] ${msg}`, ...p].slice(0, 80));
   }, []);
 
-  const sendMediaState = useCallback((mic, cam) => {
-    const conn = dataConnRef.current;
-    if (conn?.open) conn.send({ type: 'mediaState', micOn: mic, camOn: cam });
-  }, []);
+  /* ── Create RTCPeerConnection ── */
+  const createPC = useCallback((localStream) => {
+    if (pcRef.current) {
+      pcRef.current.close();
+    }
 
-  const wireDataConn = useCallback((conn) => {
-    dataConnRef.current = conn;
-    log('DataConn received');
-    conn.on('data', msg => {
-      if (msg?.type === 'mediaState') {
-        setRemoteMicOff(!msg.micOn);
-        setRemoteCamOff(!msg.camOn);
-      }
+    const pc = new RTCPeerConnection({
+      iceServers: ICE_SERVERS,
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
     });
-    conn.on('open', () => {
-      log('DataConn open — sending media state');
-      sendMediaState(micOn, camOn);
+    pcRef.current = pc;
+
+    // Add local tracks
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+      log(`Added local track: ${track.kind}`);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sendMediaState, log]);
-useEffect(() => {
-  if (localVideoRef.current) {
-    localVideoRef.current.muted = true;
-    localVideoRef.current.volume = 0;
-    localVideoRef.current.setAttribute("muted", "");
-  }
-}, []);
-  /* Retry attaching stream every 500ms until video plays */
-  const startStreamRetry = useCallback((remoteStream) => {
-    clearInterval(streamRetryRef.current);
-    let attempts = 0;
-    streamRetryRef.current = setInterval(() => {
-      const el = remoteVideoRef.current;
-      if (!el) return;
-      if (el.srcObject !== remoteStream) {
-        el.srcObject = remoteStream;
-        el.muted = false;
-        el.volume = 1.0;
-        log(`Stream attach attempt ${attempts + 1}`);
+
+    // Remote stream → attach to video
+    const remoteStream = new MediaStream();
+    pc.ontrack = (e) => {
+      log(`ontrack: ${e.track.kind} — streams: ${e.streams.length}`);
+      e.streams[0]?.getTracks().forEach(t => {
+        if (!remoteStream.getTracks().find(x => x.id === t.id)) {
+          remoteStream.addTrack(t);
+          log(`Added remote track: ${t.kind}`);
+        }
+      });
+      // Attach as soon as we have at least one track
+      if (remoteStream.getTracks().length > 0) {
+        const el = remoteVideoRef.current;
+        if (el) {
+          attachStream(el, remoteStream);
+          el.onplaying = () => {
+            log('Remote video playing ✓');
+            setAudioMuted(false);
+          };
+          el.play().catch(() => {
+            log('Autoplay blocked — showing unmute button');
+            setAudioMuted(true);
+          });
+        }
+        setConnected(true);
+        setWaiting(false);
+        setConnStatus('');
+        log('Remote stream attached — connected!');
       }
-      if (el.paused) {
-        el.play().then(() => {
-          log('play() succeeded');
-          // Check if audio is actually playing
-          setTimeout(() => {
-            if (el.muted || el.volume === 0) {
-              log('Audio appears muted — showing unmute button');
-              setAudioMuted(true);
-            } else {
-              setAudioMuted(false);
-            }
-          }, 500);
-          clearInterval(streamRetryRef.current);
-        }).catch(e => {
-          log(`play() failed: ${e.name} — showing unmute button`);
-          setAudioMuted(true);
+    };
+
+    // ICE candidates → send to peer via socket
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        log(`ICE candidate: ${e.candidate.type} / ${e.candidate.protocol}`);
+        socketRef.current?.emit('ice-candidate', {
+          targetId: remoteIdRef.current,
+          candidate: e.candidate,
         });
       } else {
-        // Video is playing — verify audio isn't muted
-        if (el.muted) {
-          el.muted = false;
-          el.volume = 1.0;
-          log('Forced unmute on playing video');
-        }
-        log(`Video playing on attempt ${attempts + 1}`);
-        clearInterval(streamRetryRef.current);
+        log('ICE gathering complete');
       }
-      if (++attempts >= 10) {
-        log('Max stream attach attempts reached');
-        clearInterval(streamRetryRef.current);
-      }
-    }, 500);
-  }, [log]);
+    };
 
-  /* ── Pending stream queue — holds stream until ICE confirms connection ── */
-  const pendingStreamRef = useRef(null);
-
-  /* Attach the remote stream now that ICE is confirmed connected */
-  const flushPendingStream = useCallback(() => {
-    const stream = pendingStreamRef.current;
-    if (!stream) return;
-    if (remoteStreamRef.current?.id === stream.id) return; // already attached
-    log(`Flushing queued stream — id: ${stream.id}`);
-
-
-if (stream.id === localStreamRef.current?.id) {
-  log('Prevented attaching local stream as remote');
-  return;
-}
-remoteStreamRef.current = stream;
-    pendingStreamRef.current = null;
-    startStreamRetry(stream);
-    setConnected(true);
-    setWaiting(false);
-    setConnStatus('');
-  }, [log, startStreamRetry]);
-
-  const onRemoteStream = useCallback((remoteStream) => {
-    log(`onRemoteStream fired — id: ${remoteStream.id}, tracks: ${remoteStream.getTracks().length}`);
-
-    // Reject echo of our own stream
-
-const local = localStreamRef.current;
-
-if (local) {
-  const localAudio = local.getAudioTracks()[0]?.id;
-  const remoteAudio = remoteStream.getAudioTracks()[0]?.id;
-
-  if (localAudio && remoteAudio && localAudio === remoteAudio) {
-    log('Rejected: local audio echo detected');
-    return;
-  }
-}
-    // Deduplicate
-    if (remoteStreamRef.current?.id === remoteStream.id) { log('Deduplicated'); return; }
-    if (pendingStreamRef.current?.id === remoteStream.id) { log('Already queued'); return; }
-
-    log(`Audio: ${remoteStream.getAudioTracks().length}, Video: ${remoteStream.getVideoTracks().length}`);
-
-    // Queue the stream — only attach once ICE confirms a real connection
-    // This prevents showing a blank/local stream before P2P is established
-    pendingStreamRef.current = remoteStream;
-    log('Stream queued — waiting for ICE connected state');
-  }, [log]);
-
-  const monitorIce = useCallback((call) => {
-    const pc = call?.peerConnection;
-    if (!pc) { log('No peerConnection'); return; }
-    let disconnectTimer = null;
-
-    const update = () => {
+    pc.oniceconnectionstatechange = () => {
       const s = pc.iceConnectionState;
-      const g = pc.iceGatheringState;
-      log(`ICE: ${s} | gathering: ${g}`);
-      clearTimeout(disconnectTimer);
-
+      log(`ICE state: ${s}`);
       if (s === 'connected' || s === 'completed') {
         setIceState('');
-        log('ICE connected — flushing pending stream');
-        flushPendingStream(); // ← attach stream now that we have a real connection
-        return;
-      }
-      if (s === 'disconnected') {
-        disconnectTimer = setTimeout(() => {
-          if (pc.iceConnectionState === 'disconnected') {
-            setIceState('disconnected');
-            try { pc.restartIce(); log('ICE restart'); } catch (_) {}
-          }
-        }, 4000);
-        return;
-      }
-      if (s === 'failed') {
+        log('✅ ICE connected!');
+      } else if (s === 'failed') {
         setIceState('failed');
-        log('ICE FAILED — restarting');
+        log('ICE failed — restarting');
         try { pc.restartIce(); } catch (_) {}
-        return;
+      } else if (s === 'disconnected') {
+        setIceState('disconnected');
+      } else {
+        setIceState(s === 'checking' ? 'checking' : '');
       }
-      setIceState(s === 'new' || s === 'checking' ? 'checking' : s);
     };
 
-    pc.oniceconnectionstatechange = update;
-    pc.onicegatheringstatechange  = () => log(`Gathering: ${pc.iceGatheringState}`);
-    pc.onconnectionstatechange    = () => {
+    pc.onconnectionstatechange = () => {
       log(`Connection state: ${pc.connectionState}`);
-      // connectionState 'connected' is more reliable on some browsers
-      if (pc.connectionState === 'connected') {
-        setIceState('');
-        flushPendingStream();
-      }
     };
-    pc.onsignalingstatechange = () => log(`Signaling: ${pc.signalingState}`);
-   pc.onicecandidate = e => {
-  if (!e.candidate) {
-    log('ICE gathering complete');
-    return;
-  }
 
-  if (e.candidate.type === "relay") {
-    log("Using TURN relay server");
-  }
-};
+    pc.onsignalingstatechange = () => {
+      log(`Signaling state: ${pc.signalingState}`);
+    };
 
-    update();
-  }, [log, flushPendingStream]);
+    return pc;
+  }, [log]);
 
+  /* ── Called by Lobby when user taps Join ── */
   const startCall = useCallback(({ stream, mode, warning }) => {
     localStreamRef.current = stream;
     setMediaMode(mode);
     setMediaWarning(warning || '');
     setPhase('call');
-    log(`Call started — mode: ${mode}`);
+    log(`Starting call — mode: ${mode}, tracks: ${stream.getTracks().length}`);
 
-    // Attach local video with retry
+    // Show local video
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (stream?.getVideoTracks().length > 0) {
-if (localVideoRef.current) {
-  localVideoRef.current.muted = true;
-  localVideoRef.current.volume = 0;
-}
+        attachStream(localVideoRef.current, stream);
+        localVideoRef.current && (localVideoRef.current.muted = true); // local is always muted
         log('Local video attached');
       }
     }));
 
-    const hostPeerId = `flavourkit2-host-${roomId}`;
-    const peerConfig = {
-      config: {
-        iceServers: ICE_SERVERS,
-        iceCandidatePoolSize: 10,
-        iceTransportPolicy: 'all',
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require',
-      },
-    };
+    // Connect to signaling server
+    setConnStatus('Connecting to server…');
+    const socket = io(SIGNAL_URL, { transports: ['websocket', 'polling'] });
+    socketRef.current = socket;
 
-    const safeStream = stream || new MediaStream();
-    log(`SafeStream tracks: ${safeStream.getTracks().length}`);
+    socket.on('connect', () => {
+      log(`Socket connected: ${socket.id}`);
+      setConnStatus('Joining room…');
+      socket.emit('join-room', { roomId });
+    });
 
-  const onCallClose = () => {
+    socket.on('connect_error', (err) => {
+      log(`Socket connection error: ${err.message}`);
+      setConnStatus(`Server error: ${err.message}. Check SIGNAL_URL.`);
+    });
 
-  log('Call closed');
+    socket.on('room-full', () => {
+      log('Room is full');
+      setConnStatus('Room is full — only 2 people per room.');
+    });
 
-  clearInterval(streamRetryRef.current);
+    /* HOST path */
+    socket.on('role', async ({ role }) => {
+      log(`Role: ${role}`);
+      if (role === 'host') {
+        setConnStatus('Waiting for friend to join…');
+        setWaiting(true);
+      }
+    });
 
-  pendingStreamRef.current = null;
-  remoteStreamRef.current = null;
+    socket.on('guest-joined', async ({ guestId }) => {
+      log(`Guest joined: ${guestId} — creating offer`);
+      remoteIdRef.current = guestId;
+      setConnStatus('Friend joined — connecting…');
 
-  if (remoteVideoRef.current) {
-    remoteVideoRef.current.srcObject = null;
-  }
+      const pc = createPC(stream);
 
-  setConnected(false);
-  setWaiting(true);
-  setRemoteMicOff(false);
-  setRemoteCamOff(false);
-  setIceState('');
-};
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
+        log('Offer created and set as local description');
+        socket.emit('offer', { targetId: guestId, offer });
+      } catch (e) {
+        log(`Error creating offer: ${e.message}`);
+      }
+    });
 
-    setConnStatus('Connecting…');
-    log(`Registering as host: ${hostPeerId}`);
+    /* GUEST path */
+    socket.on('offer', async ({ fromId, offer }) => {
+      log(`Received offer from: ${fromId}`);
+      remoteIdRef.current = fromId;
+      setConnStatus('Connecting…');
 
-    const hostPeer = new Peer(hostPeerId, peerConfig);
-    peerRef.current = hostPeer;
+      const pc = createPC(stream);
 
-    hostPeer.on('open', id => {
-      log(`Host peer open: ${id}`);
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        log('Remote description (offer) set');
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        log('Answer created and set as local description');
+
+        socket.emit('answer', { targetId: fromId, answer });
+        log('Answer sent');
+      } catch (e) {
+        log(`Error handling offer: ${e.message}`);
+      }
+    });
+
+    socket.on('answer', async ({ fromId, answer }) => {
+      log(`Received answer from: ${fromId}`);
+      const pc = pcRef.current;
+      if (!pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        log('Remote description (answer) set ✓');
+      } catch (e) {
+        log(`Error setting answer: ${e.message}`);
+      }
+    });
+
+    socket.on('ice-candidate', async ({ fromId, candidate }) => {
+      log(`Received ICE candidate from: ${fromId} — ${candidate?.type}`);
+      const pc = pcRef.current;
+      if (!pc || !candidate) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        log(`Error adding ICE candidate: ${e.message}`);
+      }
+    });
+
+    socket.on('media-state', ({ micOn: m, camOn: c }) => {
+      setRemoteMicOff(!m);
+      setRemoteCamOff(!c);
+    });
+
+    socket.on('peer-left', () => {
+      log('Peer left the room');
+      setConnected(false);
       setWaiting(true);
-      setConnStatus('Waiting for friend…');
-      hostPeer.on('connection', conn => wireDataConn(conn));
+      setConnStatus('Friend left the call.');
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      setRemoteMicOff(false);
+      setRemoteCamOff(false);
+      setIceState('');
     });
 
-    hostPeer.on('call', call => {
-      log('Incoming call — answering');
-      activeCallRef.current = call;
-      setConnStatus('Friend joining…');
-      call.answer(safeStream);
-      monitorIce(call);
-      call.on('stream', onRemoteStream);
-      call.on('close',  onCallClose);
+    socket.on('disconnect', () => {
+      log('Socket disconnected');
     });
+  }, [roomId, createPC, log]);
 
-if (roomId.includes("host")) {
-   const hostPeer = new Peer(hostPeerId, peerConfig);
-   peerRef.current = hostPeer;
-} else {
-   const guestPeer = new Peer(undefined, peerConfig);
-   peerRef.current = guestPeer;
-}
-
-guestPeer.on('open', id => {
-  log(`Guest peer open: ${id} — calling host: ${hostPeerId}`);
-
-  setConnStatus('Calling host…');
-
-  const call = guestPeer.call(hostPeerId, safeStream);
-
-  activeCallRef.current = call;
-
-  monitorIce(call);
-
-  call.on('stream', onRemoteStream);
-  call.on('close', onCallClose);
-
-  const tryData = (n = 0) => {
-    const conn = guestPeer.connect(hostPeerId, { reliable: true });
-
-    conn.on('open', () => wireDataConn(conn));
-
-    conn.on('error', () => {
-      log(`DataConn attempt ${n} failed`);
-      if (n < 5) setTimeout(() => tryData(n + 1), 800);
+  const sendMediaState = useCallback((mic, cam) => {
+    socketRef.current?.emit('media-state', {
+      targetId: remoteIdRef.current,
+      micOn: mic,
+      camOn: cam,
     });
-  };
-
-  setTimeout(() => tryData(), 500);
-});
-  }, [roomId, wireDataConn, monitorIce, onRemoteStream, log, startStreamRetry]);
-
-  useEffect(() => {
-    return () => {
-      clearInterval(streamRetryRef.current);
-      if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
-      if (peerRef.current)        peerRef.current.destroy();
-    };
   }, []);
 
-  const tapToUnmute = () => {
-    const el = remoteVideoRef.current;
-    if (!el) return;
-    el.muted = false;
-    el.volume = 1.0;
-    el.play().then(() => {
-      setAudioMuted(false);
-      log('Unmuted by user tap');
-    }).catch(e => log(`tapToUnmute play() failed: ${e.name}`));
-  };
+  /* Cleanup */
+  useEffect(() => {
+    return () => {
+      if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
+      if (pcRef.current)          pcRef.current.close();
+      if (socketRef.current)      socketRef.current.disconnect();
+    };
+  }, []);
 
   const copyInviteLink = async () => {
     try { await navigator.clipboard.writeText(inviteLink); }
@@ -580,7 +510,6 @@ guestPeer.on('open', id => {
     const next = !micOn;
     localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = next; });
     setMicOn(next); sendMediaState(next, camOn);
-    log(`Mic ${next ? 'on' : 'off'}`);
   };
 
   const toggleCam = () => {
@@ -588,13 +517,20 @@ guestPeer.on('open', id => {
     const next = !camOn;
     localStreamRef.current.getVideoTracks().forEach(t => { t.enabled = next; });
     setCamOn(next); sendMediaState(micOn, next);
-    log(`Cam ${next ? 'on' : 'off'}`);
+  };
+
+  const tapToUnmute = () => {
+    const el = remoteVideoRef.current;
+    if (!el) return;
+    el.muted = false;
+    el.volume = 1.0;
+    el.play().then(() => { setAudioMuted(false); log('Unmuted by user'); }).catch(() => {});
   };
 
   const endCall = () => {
-    clearInterval(streamRetryRef.current);
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
-    if (peerRef.current)        peerRef.current.destroy();
+    if (pcRef.current)          pcRef.current.close();
+    if (socketRef.current)      socketRef.current.disconnect();
     navigate(-1);
   };
 
@@ -604,7 +540,7 @@ guestPeer.on('open', id => {
     return <Lobby recipe={recipe} roomId={roomId} onJoin={startCall} />;
   }
 
-  const iceColor = { checking: '#f59e0b', disconnected: '#f97316', failed: '#ef4444' };
+  const iceColors = { checking: '#f59e0b', disconnected: '#f97316', failed: '#ef4444' };
 
   return (
     <div className="room-page" style={{ paddingBottom: showDebug ? 220 : 44 }}>
@@ -629,16 +565,15 @@ guestPeer.on('open', id => {
               <button className="room-retry-btn" onClick={() => setPhase('lobby')}>Retry</button>
             </div>
           )}
-
-          {iceState && iceColor[iceState] && (
+          {iceState && iceColors[iceState] && (
             <div style={{
-              background: 'rgba(0,0,0,0.5)', border: `1px solid ${iceColor[iceState]}`,
+              background: 'rgba(0,0,0,0.5)', border: `1px solid ${iceColors[iceState]}`,
               borderRadius: 8, padding: '8px 14px', fontSize: '0.8rem',
-              color: iceColor[iceState], marginBottom: 8,
+              color: iceColors[iceState], marginBottom: 8,
             }}>
               {iceState === 'checking'     && '🔄 Establishing connection…'}
-              {iceState === 'disconnected' && '⚠️ Link unstable — trying to recover…'}
-              {iceState === 'failed'       && '❌ Connection failed — tap End Call and rejoin'}
+              {iceState === 'disconnected' && '⚠️ Link unstable…'}
+              {iceState === 'failed'       && '❌ Failed — tap End Call and rejoin'}
             </div>
           )}
 
@@ -682,18 +617,15 @@ guestPeer.on('open', id => {
                   <div className="video-placeholder__text">Camera off</div>
                 </div>
               )}
-              {/* Tap to unmute — shown when mobile browser blocks audio autoplay */}
               {connected && audioMuted && (
                 <div className="video-unmute-overlay" onClick={tapToUnmute}>
                   <div style={{ fontSize: '2rem' }}>🔇</div>
                   <div style={{
                     background: 'var(--pink)', color: 'white',
                     padding: '8px 20px', borderRadius: 20,
-                    fontSize: '0.85rem', fontWeight: 700, fontFamily: 'var(--font-body)',
-                    marginTop: 8,
-                  }}>
-                    Tap to hear audio
-                  </div>
+                    fontSize: '0.85rem', fontWeight: 700,
+                    fontFamily: 'var(--font-body)', marginTop: 8,
+                  }}>Tap to hear audio</div>
                 </div>
               )}
               {connected && (
@@ -719,6 +651,7 @@ guestPeer.on('open', id => {
             <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copyInviteLink}>
               {copied ? '✓ Copied!' : '🔗 Copy Link'}
             </button>
+            <div className="room-link-pill" title={inviteLink}>{inviteLink}</div>
             <button className="end-btn" onClick={endCall}>✕ End</button>
           </div>
         </div>

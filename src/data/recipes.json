@@ -1,63 +1,46 @@
 {
-  "sliderImages": [
-    {
-      "url": "/img/banner-1.png",
-      "title": "Cook With Passion",
-      "subtitle": "Discover recipes that inspire"
-    },
-    {
-      "url": "/img/banner-2.png",
-      "title": "Fresh Ingredients",
-      "subtitle": "Simple food, extraordinary taste"
-    },
-    {
-      "url": "/img/banner-3.png",
-      "title": "Cook Together",
-      "subtitle": "Share the joy of cooking with friends"
-    }
-  ],
   "categories": [
     {
       "id": "breakfast",
       "name": "Breakfast",
       "emoji": "🍳",
       "description": "Start your day right",
-      "image": "/img/category/cat-1.jpg"
+      "image": "/images/cat-breakfast.jpg"
     },
     {
       "id": "lunch",
       "name": "Lunch",
       "emoji": "🥗",
       "description": "Midday fuel",
-      "image": "/img/category/cat-2.jpg"
+      "image": "/images/cat-lunch.jpg"
     },
     {
       "id": "dinner",
       "name": "Dinner",
       "emoji": "🍝",
       "description": "Evening favourites",
-      "image": "/img/category/cat-3.jpg"
+      "image": "/images/cat-dinner.jpg"
     },
     {
       "id": "desserts",
       "name": "Desserts",
       "emoji": "🍰",
       "description": "Sweet endings",
-      "image": "/img/category/cat-4.jpg"
+      "image": "/images/cat-desserts.jpg"
     },
     {
       "id": "drinks",
       "name": "Drinks",
       "emoji": "🍹",
       "description": "Refreshing sips",
-      "image": "/img/category/cat-5.jpg"
+      "image": "/images/cat-drinks.jpg"
     },
     {
       "id": "snacks",
       "name": "Snacks",
       "emoji": "🥨",
       "description": "Quick bites",
-      "image": "/img/category/cat-6.jpg"
+      "image": "/images/cat-snacks.jpg"
     }
   ],
   "recipes": [
@@ -65,7 +48,7 @@
       "id": "avocado-toast",
       "categoryId": "breakfast",
       "title": "Avocado Toast with Poached Egg",
-      "image": "/img/recipe/dish-1.jpg",
+      "image": "/images/recipe-avocado-toast.jpg",
       "time": "15 min",
       "servings": 2,
       "difficulty": "Easy",
@@ -93,7 +76,7 @@
       "id": "banana-pancakes",
       "categoryId": "breakfast",
       "title": "Fluffy Banana Pancakes",
-      "image": "/img/recipe/dish-2.jpg",
+      "image": "/images/recipe-banana-pancakes.jpg",
       "time": "20 min",
       "servings": 4,
       "difficulty": "Easy",
@@ -123,7 +106,7 @@
       "id": "greek-salad",
       "categoryId": "lunch",
       "title": "Classic Greek Salad",
-      "image": "/img/recipe/dish-3.jpg",
+      "image": "/images/recipe-greek-salad.jpg",
       "time": "10 min",
       "servings": 2,
       "difficulty": "Easy",
@@ -152,7 +135,7 @@
       "id": "chicken-wrap",
       "categoryId": "lunch",
       "title": "Grilled Chicken Caesar Wrap",
-      "image": "/img/recipe/dish-4.jpg",
+      "image": "/images/recipe-chicken-wrap.jpg",
       "time": "25 min",
       "servings": 2,
       "difficulty": "Medium",
@@ -181,7 +164,7 @@
       "id": "spaghetti-carbonara",
       "categoryId": "dinner",
       "title": "Spaghetti Carbonara",
-      "image": "/img/recipe/dish-5.jpg",
+      "image": "/images/recipe-carbonara.jpg",
       "time": "30 min",
       "servings": 4,
       "difficulty": "Medium",
@@ -209,7 +192,7 @@
       "id": "butter-chicken",
       "categoryId": "dinner",
       "title": "Butter Chicken",
-      "image": "/img/recipe/dish-6.jpg",
+      "image": "/images/recipe-butter-chicken.jpg",
       "time": "45 min",
       "servings": 4,
       "difficulty": "Medium",
@@ -244,7 +227,7 @@
       "id": "chocolate-lava-cake",
       "categoryId": "desserts",
       "title": "Chocolate Lava Cake",
-      "image": "/img/recipe/dish-7.jpg",
+      "image": "/images/recipe-lava-cake.jpg",
       "time": "25 min",
       "servings": 4,
       "difficulty": "Medium",
@@ -273,7 +256,7 @@
       "id": "mango-smoothie",
       "categoryId": "drinks",
       "title": "Tropical Mango Smoothie",
-      "image": "/img/recipe/dish-8.jpg",
+      "image": "/images/recipe-mango-smoothie.jpg",
       "time": "5 min",
       "servings": 2,
       "difficulty": "Easy",
@@ -301,7 +284,7 @@
       "id": "guacamole",
       "categoryId": "snacks",
       "title": "Fresh Guacamole & Chips",
-      "image": "/img/recipe/dish-9.jpg",
+      "image": "/images/recipe-guacamole.jpg",
       "time": "10 min",
       "servings": 4,
       "difficulty": "Easy",
@@ -324,6 +307,23 @@
         "Cover with plastic wrap pressed directly onto the surface to prevent browning.",
         "Serve immediately with tortilla chips, or refrigerate for up to 2 hours."
       ]
+    }
+  ],
+  "sliderImages": [
+    {
+      "url": "/images/slider1.jpg",
+      "title": "Cook With Passion",
+      "subtitle": "Discover recipes that inspire"
+    },
+    {
+      "url": "/images/slider2.jpg",
+      "title": "Fresh Ingredients",
+      "subtitle": "Simple food, extraordinary taste"
+    },
+    {
+      "url": "/images/slider3.jpg",
+      "title": "Cook Together",
+      "subtitle": "Share the joy of cooking with friends"
     }
   ]
 }
